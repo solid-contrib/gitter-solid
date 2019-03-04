@@ -1,0 +1,30 @@
+{
+  "name": "solid-gitter",
+  "description": "Linked Data command line utility",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Berners-Lee",
+    "email": "timbl@w3.org"
+  },
+  "maintainers": [],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/solid/solid-gitter"
+  },
+  "homepage": "http://github.com/solid/solid-gitter",
+  "bugs": "http://github.com/solid/solid-gitter/issues",
+  "dependencies": {
+    "node-gitter": "^2.1.0",
+    "rdflib": "^0.15.0"
+  },
+  "bin": {
+    "solid-gitter": "./bin/solid-gitter"
+  },
+  "devDependencies": {
+    "fs-extra": "^4.0.2",
+    "mocha": "^4.0.1",
+    "mock-http-server": "^0.2.0"
+  },
+  "main": "index.js"
+}

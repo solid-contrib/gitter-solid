@@ -3,21 +3,37 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
-var Gitter = require('node-gitter');
+var Gitter = require('node-gitter')
+var $rdf = require('rdflib')
+const solidNamespace = require('solid-namespace')
+const ns = solidNamespace($rdf)
 
+if (!ns.wf) {
+  ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
+}
 // see https://www.npmjs.com/package/node-gitter
 
-const token = process.env.GITTER_TOKEN
-console.log('token ' + token)
-var gitter = new Gitter(token);
+const GITTER_TOKEN = process.env.GITTER_TOKEN
+console.log('GITTER_TOKEN ' + GITTER_TOKEN)
+const gitter = new Gitter(GITTER_TOKEN)
 
-const targetRoom = 'Inrupt/team'
+const SOLID_TOKEN = process.env.SOLID_TOKEN
+console.log('SOLID_TOKEN ' + SOLID_TOKEN.length)
+if (!SOLID_TOKEN) {
+  console.log('NO SOLID TOKEN')
+  process.exit(2)
+}
+
+const targetRoom = 'Inrupt/team' // @@ for testing
 
 const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
 const peopleBaseURI = 'https://timbl.com/timbl/Public/Archive/Person/'
 
+/// ///////////////////////////// Solid Bits
 
-//////////////////////////////// Solid Bits
+const store = $rdf.graph()
+const fetcher = new $rdf.Fetcher(store)
+// const updater = new $rdf.UpdateManager(store)
 
 function chatDocumentFromDate (chatChannel, date) {
   let isoDate = date.toISOString() // Like "2018-05-07T17:42:46.576Z"
@@ -26,99 +42,204 @@ function chatDocumentFromDate (chatChannel, date) {
   return $rdf.sym(path)
 }
 
+/* Test version of update
+*/
+
+async function update (ddd, sts) {
+  const doc = sts[0].why
+  // console.log('   Delete ' + ddd.length )
+  console.log('   Insert ' + sts.length + ' in ' + doc)
+  for (let i = 0; i < sts.length; i++) {
+    let st = sts[i]
+    console.log(`       ${i}: ${st.subject} ${st.predicate} ${st.object} .`)
+  }
+}
+const updater = {update}
+
 /** Decide URI of solid chat vchanel from name of gitter room
  *
  * @param gitterName {String} - like 'solid/chat'
 */
 function chatChannelFromGitterName (gitterName) {
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
-  return $rdf.sym(archiveBaseURI + gitterName)
+  let segment = gitterName.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
+  return $rdf.sym(archiveBaseURI + segment + '/index.ttl#this')
 }
-
 
 /** Track gitter useres
 
 */
+
+/** Put data in array
+*/
+async function putResource (doc, statements = []) {
+  var options = {}
+  options.headers = {}
+  options.headers.Authorization = 'Bearer ' + SOLID_TOKEN
+  statements.forEach(st => store.add(st.subject, st.predicate, st.object, st.why))
+  return fetcher.putBack(doc, options)
+}
 
 async function authorFromGitter (fromUser) {
   /* fromUser looks like
     "id": "53307734c3599d1de448e192",
     "username": "malditogeek",
     "displayName": "Mauro Pompilio",
-    "url": "/malditogeek",
+    "url": "/malditogeek",     meaning https://github.com/malditogeek
     "avatarUrlSmall": "https://avatars.githubusercontent.com/u/14751?",
     "avatarUrlMedium": "https://avatars.githubusercontent.com/u/14751?"
   */
-  var person = $rdf.sym(peopleBaseURI + fromUser.id + '/index.ttl#this)
-  try {
-    await fetcher.load(person.doc)
-  } catch (err) {
-    if (err.response && err.response.status && err.response.status === 404) {
-      console.log('No person file yet ' + person)
-    } else {
-      console.log(' #### Error reading person file ' + err)
-      return
+  async function saveUserData (fromUser, person) {
+    const doc = person.doc()
+    const statements = [
+      $rdf.st(person, ns.rdf('type'), ns.vcard('Individual'), doc),
+      $rdf.st(person, ns.rdf('type'), ns.foaf('Person'), doc),
+      $rdf.st(person, ns.vcard('fn'), fromUser.displayName, doc),
+      $rdf.st(person, ns.foaf('homepage'), 'https://github.com' + fromUser.url, doc),
+      $rdf.st(person, ns.foaf('nick'), fromUser.username, doc) ]
+    if (fromUser.avatarUrlMedium) {
+      statements.push($rdf.st(person, ns.vcard('photo'), $rdf.sym(fromUser.avatarUrlMedium), doc))
     }
+
+    try {
+      await putResource(doc, statements)
+    } catch (err) {
+      console.log(`Error writing solid resource ${doc}: ${err}`)
+      process.exit(2)
+    }
+
+    // await updater.update([], statements) // @@ needs latest version of rdflib
   }
 
+  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
+  console.log('     person id: ' + fromUser.id)
+  console.log('     person solid: ' + person)
+  try {
+    await fetcher.load(person.doc())
+  } catch (err) {
+    if (err.response && err.response.status && err.response.status === 404) {
+      console.log('No person file yet, creating ' + person)
+      await saveUserData(fromUser, person) // Patch the file into existence
+      return person
+    } else {
+      console.log(' #### Error reading person file ' + err)
+      console.log(' #### Error reading person file   ' + JSON.stringify(err))
+      console.log('        err.response   ' + err.response)
+      console.log('        err.response.status   ' + err.response.status)
+
+    }
+  }
+  return person
 }
-/**  Cobvert gitter message to Solid
+/**  Convert gitter message to Solid
  *
 */
 // See https://developer.gitter.im/docs/messages-resource
 
 async function storeMessage (chatChannel, m) {
-
-  var author = authorFromGittter (user) {
-    return
-  }
+  var author = await authorFromGitter(m.fromUser)
 
   var sent = new Date(m.sent) // Like "2014-03-25T11:51:32.289Z"
-  var doc = chatDocumentFromDate(chatChannel, sent)
+  console.log('        Message sent on date ' + sent)
+  var chatDocument = chatDocumentFromDate(chatChannel, sent)
   // var timestamp = '' + sent.getTime() // @@@ format?
-  var message = $rdf.sym(chaDocument.uri + '#' + m.id) // like "53316dc47bfc1a000000000f"
+  var message = $rdf.sym(chatDocument.uri + '#' + m.id) // like "53316dc47bfc1a000000000f"
+  console.log('        Solid Message  ' + message)
 
-  var fromUser = m.fromUser
-
-
-
-  var sts  = []
+  var sts = []
   sts.push($rdf.st(chatChannel, ns.wf('message'), message, chatDocument))
   sts.push($rdf.st(message, ns.sioc('content'), m.text, chatDocument))
   sts.push($rdf.st(message, ns.sioc('richContent'), m.html, chatDocument)) // @@ predicate??
 
-  sts.push($rdf.st(message, DCT('created'), sent, chatDocument))
+  sts.push($rdf.st(message, ns.dct('created'), sent, chatDocument))
   if (m.edited) {
-    sts.push($rdf.st(message, DCT('modified'), new Date(m.edited), chatDocument))
+    sts.push($rdf.st(message, ns.dct('modified'), new Date(m.edited), chatDocument))
   }
   sts.push($rdf.st(message, ns.foaf('maker'), author, chatDocument))
-
+  /*
+  console.log('   statemnets ' + sts.length)
+  for (let i = 0; i < sts.length; i++) {
+    let st = sts[i]
+    console.log(`       ${i}: ${st.subject} ${st.predicate} ${st.object} .`)
+  }
+  */
+  // console.log('   Storing message: ' + sts.map(st => st.toNT()).join('\n             '))
+  // await updater.update([], sts)
+  await putResource(chatDocument, sts)
 }
 
+/// /////////////////////////////  Gitter bits
 
+async function doRoom (room) {
+  // gitter.rooms.find(roomId) .then(function(room) {
+  console.log('doing room ' + room.name)
+  console.log('room.users ' + room.users)
+  console.log('room.id ' + room.id)
 
-////////////////////////////////  Gitter bits
+  var rrr = await gitter.rooms.find(room.id)
+  // var users = await rrr.users()
+  var messages = await rrr.chatMessages() // @@@@ ?
+  console.log(' messages ' + messages.length)
+  const solidChannel = chatChannelFromGitterName(room.name)
+  console.log('    solid channel ' + solidChannel)
+
+  // Make the main chat channel file
+  var newChatDoc = solidChannel.doc()
+  store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
+  store.add(solidChannel, ns.dc('title'), room.name  + ' gitter chat archive', newChatDoc)
+  // store.add(solidChannel, ns.dc('created'), new Date(), newChatDoc)
+  /*
+  if (newPaneOptions.me) {
+    store.add(solidChannel, ns.dc('author'), newPaneOptions.me, newChatDoc)
+  }
+  */
+  await putResource(newChatDoc)
+
+  for (let m = 0; m < messages.length; m++) {
+    let message = messages[m]
+    console.log('      storing message of ' + message.sent) // JSON.stringify()
+    // console.log('         message::  ' + JSON.stringify(message)) // JSON.stringify()
+    await storeMessage(solidChannel, message)
+  }
+}
 
 async function go () {
   var oneToOnes = []
-  console.log('Logging in ...')
+  var multiRooms = []
+  console.log('Logging into gitter ...')
   const user = await gitter.currentUser()
-  console.log('You are logged in as:', user.username);
+  console.log('You are logged in as:', user.username)
   var rooms = await user.rooms()
   console.log('rooms ' + rooms.length)
-  for (let r=0; r < rooms.length; r++) {
+  var roomIndex = {}
+  for (let r = 0; r < rooms.length; r++) {
     var room = rooms[r]
     const oneToOne = room.oneToOne
-    const noun = oneToOne? 'OneToOne' : 'Room'
+    const noun = oneToOne ? 'OneToOne' : 'Room'
+    roomIndex[room.name] = room
     if (oneToOne) {
       oneToOnes.push(room)
     } else {
       console.log(`  ${noun} ${room.name} unread ${room.unreadItems}`)
       multiRooms.push(room)
-      if (room.name === targetRoom) {
+      if (room.name === targetRoomName) {
         console.log('Target room found: ' + room.name)
       }
     }
+
+  }
+
+  var targetRoomName = 'solid/chat'
+  var targetRoom = roomIndex[targetRoomName]
+  if (targetRoom) {
+    try {
+      await doRoom(targetRoom)
+    } catch (err) {
+      console.log(`Error processing room ${targetRoom.name}:` + err)
+      process.exit(1)
+    }
+  } else {
+    console.log('## Cant find target room ' + targetRoomName)
   }
 
   var repos = await user.repos()
@@ -127,15 +248,9 @@ async function go () {
   var orgs = await user.orgs()
   console.log('orgs ' + orgs.length)
 
-  console.log('\nInrupt Team chat')
-  const roomid = 'Inrupt/team'
-  var room = await gitter.rooms.find(roomid)
-  var chatMessages = room.chatMessages()
-  console.log('chatMessages ' + chatMessages.length)
-
   console.log('ENDS')
 }
 
-go ()
+go()
 
 // ends

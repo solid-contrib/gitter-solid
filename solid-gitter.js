@@ -70,14 +70,41 @@ function chatChannelFromGitterName (gitterName) {
 
 */
 
-/** Put data in array
-*/
-async function putResource (doc, statements = []) {
+
+async function putResource (doc) {
   var options = {}
   options.headers = {}
   options.headers.Authorization = 'Bearer ' + SOLID_TOKEN
-  statements.forEach(st => store.add(st.subject, st.predicate, st.object, st.why))
   return fetcher.putBack(doc, options)
+}
+
+async function loadIfExists (doc) {
+  try {
+    await fetcher.load(doc)
+    return true
+  } catch (err) {
+    if (err.response && err.response.status && err.response.status === 404) {
+      console.log('No file yet, creating later ' + doc)
+      return false
+    } else {
+      console.log(' #### Error reading  file ' + err)
+      console.log(' #### Error reading person file   ' + JSON.stringify(err))
+      console.log('        err.response   ' + err.response)
+      console.log('        err.response.status   ' + err.response.status)
+      process.exit(4)
+    }
+  }
+}
+
+async function saveEverythingBack () {
+  console.log('Saving all modified files:' )
+  for (uri in toBePut) {
+    if (toBePut.hasOwnProperty(uri)) {
+      console.log('  putting ' + uri)
+      await putResource($rdf.sym(uri))
+    }
+  }
+  console.log('Saved all modified files.' )
 }
 
 async function authorFromGitter (fromUser) {
@@ -91,31 +118,22 @@ async function authorFromGitter (fromUser) {
   */
   async function saveUserData (fromUser, person) {
     const doc = person.doc()
-    const statements = [
-      $rdf.st(person, ns.rdf('type'), ns.vcard('Individual'), doc),
-      $rdf.st(person, ns.rdf('type'), ns.foaf('Person'), doc),
-      $rdf.st(person, ns.vcard('fn'), fromUser.displayName, doc),
-      $rdf.st(person, ns.foaf('homepage'), 'https://github.com' + fromUser.url, doc),
-      $rdf.st(person, ns.foaf('nick'), fromUser.username, doc) ]
+    store.add(person, ns.rdf('type'), ns.vcard('Individual'), doc)
+    store.add(person, ns.rdf('type'), ns.foaf('Person'), doc)
+    store.add(person, ns.vcard('fn'), fromUser.displayName, doc)
+    store.add(person, ns.foaf('homepage'), 'https://github.com' + fromUser.url, doc)
+    store.add(person, ns.foaf('nick'), fromUser.username, doc)
     if (fromUser.avatarUrlMedium) {
-      statements.push($rdf.st(person, ns.vcard('photo'), $rdf.sym(fromUser.avatarUrlMedium), doc))
+      store.add(person, ns.vcard('photo'), $rdf.sym(fromUser.avatarUrlMedium), doc)
     }
-
-    try {
-      await putResource(doc, statements)
-    } catch (err) {
-      console.log(`Error writing solid resource ${doc}: ${err}`)
-      process.exit(2)
-    }
-
-    // await updater.update([], statements) // @@ needs latest version of rdflib
+    toBePut[doc.uri] = true
   }
 
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
   console.log('     person id: ' + fromUser.id)
   console.log('     person solid: ' + person)
   try {
-    await fetcher.load(person.doc())
+    await fetcher.load(person.doc()) // If exists, fine... leave it
   } catch (err) {
     if (err.response && err.response.status && err.response.status === 404) {
       console.log('No person file yet, creating ' + person)
@@ -126,7 +144,6 @@ async function authorFromGitter (fromUser) {
       console.log(' #### Error reading person file   ' + JSON.stringify(err))
       console.log('        err.response   ' + err.response)
       console.log('        err.response.status   ' + err.response.status)
-
     }
   }
   return person
@@ -136,42 +153,36 @@ async function authorFromGitter (fromUser) {
 */
 // See https://developer.gitter.im/docs/messages-resource
 
-async function storeMessage (chatChannel, m) {
-  var author = await authorFromGitter(m.fromUser)
 
+async function storeMessage (chatChannel, m) {
   var sent = new Date(m.sent) // Like "2014-03-25T11:51:32.289Z"
   console.log('        Message sent on date ' + sent)
   var chatDocument = chatDocumentFromDate(chatChannel, sent)
-  // var timestamp = '' + sent.getTime() // @@@ format?
   var message = $rdf.sym(chatDocument.uri + '#' + m.id) // like "53316dc47bfc1a000000000f"
-  console.log('        Solid Message  ' + message)
+  console.log('          Solid Message  ' + message)
 
-  var sts = []
-  sts.push($rdf.st(chatChannel, ns.wf('message'), message, chatDocument))
-  sts.push($rdf.st(message, ns.sioc('content'), m.text, chatDocument))
-  sts.push($rdf.st(message, ns.sioc('richContent'), m.html, chatDocument)) // @@ predicate??
-
-  sts.push($rdf.st(message, ns.dct('created'), sent, chatDocument))
+  await loadIfExists(chatDocument)
+  if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
+    console.log ('             Already got this. ' + m.edited)
+    return // alraedy got it
+  }
+  var author = await authorFromGitter(m.fromUser)
+  store.add(chatChannel, ns.wf('message'), message, chatDocument)
+  store.add(message, ns.sioc('content'), m.text, chatDocument)
+  if (m.html && m.html !== m.text) { // is it new information?
+    store.add(message, ns.sioc('richContent'), m.html, chatDocument) // @@ predicate??
+  }
+  store.add(message, ns.dct('created'), sent, chatDocument)
   if (m.edited) {
-    sts.push($rdf.st(message, ns.dct('modified'), new Date(m.edited), chatDocument))
+    store.add(message, ns.dct('modified'), new Date(m.edited), chatDocument)
   }
-  sts.push($rdf.st(message, ns.foaf('maker'), author, chatDocument))
-  /*
-  console.log('   statemnets ' + sts.length)
-  for (let i = 0; i < sts.length; i++) {
-    let st = sts[i]
-    console.log(`       ${i}: ${st.subject} ${st.predicate} ${st.object} .`)
-  }
-  */
-  // console.log('   Storing message: ' + sts.map(st => st.toNT()).join('\n             '))
-  // await updater.update([], sts)
-  await putResource(chatDocument, sts)
+  store.add(message, ns.foaf('maker'), author, chatDocument)
+  toBePut[chatDocument.uri] = true
 }
 
-/// /////////////////////////////  Gitter bits
+/// /////////////////////////////  Do Room
 
 async function doRoom (room) {
-  // gitter.rooms.find(roomId) .then(function(room) {
   console.log('doing room ' + room.name)
   console.log('room.users ' + room.users)
   console.log('room.id ' + room.id)
@@ -187,12 +198,6 @@ async function doRoom (room) {
   var newChatDoc = solidChannel.doc()
   store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
   store.add(solidChannel, ns.dc('title'), room.name  + ' gitter chat archive', newChatDoc)
-  // store.add(solidChannel, ns.dc('created'), new Date(), newChatDoc)
-  /*
-  if (newPaneOptions.me) {
-    store.add(solidChannel, ns.dc('author'), newPaneOptions.me, newChatDoc)
-  }
-  */
   await putResource(newChatDoc)
 
   for (let m = 0; m < messages.length; m++) {
@@ -248,9 +253,11 @@ async function go () {
   var orgs = await user.orgs()
   console.log('orgs ' + orgs.length)
 
+  saveEverythingBack()
   console.log('ENDS')
 }
 
+var toBePut = []
 go()
 
 // ends

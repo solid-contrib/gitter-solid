@@ -3,6 +3,9 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
+const command = process.argv[2]
+const targetRoomName = process.argv[3]
+
 var Gitter = require('node-gitter')
 var $rdf = require('rdflib')
 const solidNamespace = require('solid-namespace')
@@ -24,16 +27,19 @@ if (!SOLID_TOKEN) {
   process.exit(2)
 }
 
-const targetRoom = 'Inrupt/team' // @@ for testing
-
 const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
-const peopleBaseURI = 'https://timbl.com/timbl/Public/Archive/Person/'
+const peopleBaseURI = archiveBaseURI + 'Person/'
 
 /// ///////////////////////////// Solid Bits
 
 const store = $rdf.graph()
+const kb = store // shorthand -- knowledge base
 const fetcher = new $rdf.Fetcher(store)
 // const updater = new $rdf.UpdateManager(store)
+
+function delay (ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 function chatDocumentFromDate (chatChannel, date) {
   let isoDate = date.toISOString() // Like "2018-05-07T17:42:46.576Z"
@@ -45,6 +51,7 @@ function chatDocumentFromDate (chatChannel, date) {
 /* Test version of update
 */
 
+/*
 async function update (ddd, sts) {
   const doc = sts[0].why
   // console.log('   Delete ' + ddd.length )
@@ -54,7 +61,7 @@ async function update (ddd, sts) {
     console.log(`       ${i}: ${st.subject} ${st.predicate} ${st.object} .`)
   }
 }
-const updater = {update}
+*/
 
 /** Decide URI of solid chat vchanel from name of gitter room
  *
@@ -70,21 +77,21 @@ function chatChannelFromGitterName (gitterName) {
 
 */
 
-
 async function putResource (doc) {
   var options = {}
   options.headers = {}
   options.headers.Authorization = 'Bearer ' + SOLID_TOKEN
+  delete fetcher.requested[doc.uri] // invalidate read cache @@ should be done by fether in future
   return fetcher.putBack(doc, options)
 }
 
 async function loadIfExists (doc) {
   try {
-    await fetcher.load(doc)
+    await fetcher.load(doc, { force: true })
     return true
   } catch (err) {
     if (err.response && err.response.status && err.response.status === 404) {
-      console.log('No file yet, creating later ' + doc)
+      console.log('    No chat file yet, creating later ' + doc)
       return false
     } else {
       console.log(' #### Error reading  file ' + err)
@@ -96,15 +103,54 @@ async function loadIfExists (doc) {
   }
 }
 
+function suitable (x) {
+  let tail = x.uri.slice(0, -1).split('/').slice(-1)[0]
+  if (!'0123456789'.includes(tail[0])) return false // not numeric
+  return true
+  // return kb.anyValue(chatDocument, POSIX('size')) !== 0 // empty file?
+}
+
+async function firstMessage (chatChannel, backwards) { // backwards -> last message
+  const folderStore = $rdf.graph()
+  const kb = folderStore
+  const folderFetcher = new $rdf.Fetcher(folderStore)
+  async function earliestSubfolder (parent) {
+    console.log('            parent ' + parent)
+    await folderFetcher.load(parent, {force: true}) // Force fetch as will have changed
+    let kids = kb.each(parent, ns.ldp('contains'))
+    kids = kids.filter(suitable)
+    kids.sort()
+    if (backwards) kids.reverse()
+    return kids[0]
+  }
+  let y = await earliestSubfolder(chatChannel.dir())
+  let m = await earliestSubfolder(y)
+  let d = await earliestSubfolder(m)
+  let chatDocument = $rdf.sym(d.uri + 'chat.ttl')
+  await folderFetcher.load(chatDocument)
+  let messages = kb.each(chatChannel, ns.wf('message'), null, chatDocument)
+  if (messages.length === 0) {
+    console.trace('  INCONSITENCY -- no chat message in file ' + chatDocument)
+    throw new Value
+  }
+  let sortMe = messages.map(m => [kb.any(m, ns.dct('created')), m])
+  sortMe.sort()
+  if (backwards) sortMe.reverse()
+  console.log((backwards? 'Latest' : 'Earliest' ) +  ' message in solid chat is ' + sortMe[0][1])
+  return sortMe[0][1]
+}
+
 async function saveEverythingBack () {
-  console.log('Saving all modified files:' )
-  for (uri in toBePut) {
+  console.log('Saving all modified files:')
+  for (let uri in toBePut) {
     if (toBePut.hasOwnProperty(uri)) {
-      console.log('  putting ' + uri)
+      console.log('Putting ' + uri)
       await putResource($rdf.sym(uri))
+      delete fetcher.requested[uri] // invalidate read cache @@ should be done by fether in future
     }
   }
-  console.log('Saved all modified files.' )
+  console.log('Saved all modified files.')
+  toBePut = []
 }
 
 async function authorFromGitter (fromUser) {
@@ -130,8 +176,8 @@ async function authorFromGitter (fromUser) {
   }
 
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
-  console.log('     person id: ' + fromUser.id)
-  console.log('     person solid: ' + person)
+  // console.log('     person id: ' + fromUser.id)
+  // console.log('     person solid: ' + person)
   try {
     await fetcher.load(person.doc()) // If exists, fine... leave it
   } catch (err) {
@@ -153,19 +199,25 @@ async function authorFromGitter (fromUser) {
 */
 // See https://developer.gitter.im/docs/messages-resource
 
+var newMessages = 0
+var oldMessages = 0
 
 async function storeMessage (chatChannel, m) {
   var sent = new Date(m.sent) // Like "2014-03-25T11:51:32.289Z"
-  console.log('        Message sent on date ' + sent)
+  // console.log('        Message sent on date ' + sent)
   var chatDocument = chatDocumentFromDate(chatChannel, sent)
   var message = $rdf.sym(chatDocument.uri + '#' + m.id) // like "53316dc47bfc1a000000000f"
-  console.log('          Solid Message  ' + message)
+  // console.log('          Solid Message  ' + message)
 
   await loadIfExists(chatDocument)
   if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
-    console.log ('             Already got this. ' + m.edited)
+    console.log(`  already got ${m.sent} message ${message}`)
+    oldMessages += 1
     return // alraedy got it
   }
+  newMessages += 1
+  console.log(`NOT got ${m.sent} message ${message}`)
+
   var author = await authorFromGitter(m.fromUser)
   store.add(chatChannel, ns.wf('message'), message, chatDocument)
   store.add(message, ns.sioc('content'), m.text, chatDocument)
@@ -177,6 +229,7 @@ async function storeMessage (chatChannel, m) {
     store.add(message, ns.dct('modified'), new Date(m.edited), chatDocument)
   }
   store.add(message, ns.foaf('maker'), author, chatDocument)
+  if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
   toBePut[chatDocument.uri] = true
 }
 
@@ -187,32 +240,151 @@ async function doRoom (room) {
   console.log('room.users ' + room.users)
   console.log('room.id ' + room.id)
 
-  var rrr = await gitter.rooms.find(room.id)
-  // var users = await rrr.users()
-  var messages = await rrr.chatMessages() // @@@@ ?
-  console.log(' messages ' + messages.length)
-  const solidChannel = chatChannelFromGitterName(room.name)
+  var gitterRoom = await gitter.rooms.find(room.id)
+  var solidChannel = chatChannelFromGitterName(room.name)
   console.log('    solid channel ' + solidChannel)
 
-  // Make the main chat channel file
-  var newChatDoc = solidChannel.doc()
-  store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
-  store.add(solidChannel, ns.dc('title'), room.name  + ' gitter chat archive', newChatDoc)
-  await putResource(newChatDoc)
+  // var users = await gitterRoom.users()
 
-  for (let m = 0; m < messages.length; m++) {
-    let message = messages[m]
-    console.log('      storing message of ' + message.sent) // JSON.stringify()
-    // console.log('         message::  ' + JSON.stringify(message)) // JSON.stringify()
-    await storeMessage(solidChannel, message)
+  function findEarliestId (messages) {
+    var sortMe = messages.map(m => [m.sent, m])
+    sortMe.sort()
+    const earliest = sortMe[0][1]
+    return earliest.id
+  }
+
+  async function catchup () {
+    newMessages = 0
+    oldMessages = 0
+    var messages = await gitterRoom.chatMessages() // @@@@ ?
+    console.log(' messages ' + messages.length)
+    for (let gitterMessage of messages) {
+      await storeMessage(solidChannel, gitterMessage)
+    }
+    if (oldMessages) {
+      console.log('End catchup. Found message we alreas had.')
+      return
+    }
+    await saveEverythingBack()
+    var newId = findEarliestId(messages)
+    for (let i = 0; i < 30; i++) {
+      newId = await extendBeforeId(newId)
+      if (!newId)  {
+        console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
+        return
+      }
+      if (oldMessages) {
+        console.log(`End catchup. Found message we already had, after ${newMessages} .`)
+        return
+      }
+      console.log(' ... pause ...')
+      await delay(3000) // ms  give the API a rest
+    }
+    console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages } new messages `)
+  }
+
+  async function initialize () {
+    const solidChannel = chatChannelFromGitterName(room.name)
+    console.log('    solid channel ' + solidChannel)
+    // Make the main chat channel file
+    var newChatDoc = solidChannel.doc()
+    let already = await loadIfExists(newChatDoc)
+    if (!already) {
+      store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
+      store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
+      await putResource(newChatDoc)
+    } else {
+      console.log('Chat channel doc already exists:' + newChatDoc)
+    }
+  }
+
+  async function extendArchiveBack () {
+    let m0 = await firstMessage(solidChannel)
+    let d0 = kb.anyValue(m0, ns.dct('created'))
+    console.log('Before extension back, earliest message ' + d0)
+    var newId = m0.uri.split('#')[1]
+   // var newId = await extendBeforeId(id)
+    for (let i = 0; i < 30; i++) {
+      newId = await extendBeforeId(newId)
+      if (!newId) return
+      console.log(' ... pause ...')
+      await delay(3000) // ms  give the API a rest
+    }
+  }
+
+  /* Returns earliest id it finds so can be chained
+  */
+  async function extendBeforeId (id) {
+    console.log(`   Looking for messages before ${id}`)
+    let messages = await gitterRoom.chatMessages({limit: 100, beforeId: id})
+    console.log('      found ' + messages.length)
+    if (messages.length === 0) {
+      console.log('    END OF BACK FILL - UP TO DATE  ====== ' )
+      return null
+    }
+    for (let gitterMessage of messages) {
+      await storeMessage(solidChannel, gitterMessage)
+    }
+    await saveEverythingBack()
+    let m1 = await firstMessage(solidChannel)
+    let d1 = kb.anyValue(m1, ns.dct('created'))
+    console.log('After extension back, earliest message now ' + d1)
+
+    var sortMe = messages.map(m => [m.sent, m])
+    sortMe.sort()
+    const earliest = sortMe[0][1]
+
+    return earliest.id
+  }
+
+  if (command === 'archive') {
+    await extendArchiveBack()
+  } else  if (command === 'catchup') {
+    await catchup()
+  } else  if (command === 'init') {
+    initialize()
+  }
+  return
+
+
+  if (command != 'archive') return
+  var count = 0
+  while (count < 30) { // avoid limit on requests
+    count += 1
+    for (var gitterMessage of messages) {
+      await storeMessage(solidChannel, gitterMessage)
+    }
+    await saveEverythingBack()
+
+    var sortMe = messages.map(m => [m.sent, m])
+    sortMe.sort()
+    const earliest = sortMe[0][1]
+    const latest = sortMe.slice(-1)[0][1]
+    console.log(`\n\nearliest message at ${earliest.sent} : ` + earliest.id)
+    console.log(`latest message at ${latest.sent} : ` + latest.id)
+    var more = await gitterRoom.chatMessages({limit: 100, beforeId: earliest.id}) // @@@@ ?
+    console.log(' eg now fetched one sent ' + more[0].sent)
+
+    if (more.length === 0) {
+      console.log('=============== end of messagews as none found')
+      return
+    }
+    messages = more
   }
 }
 
 async function go () {
+  console.log('Target roomm name: ' + targetRoomName)
   var oneToOnes = []
   var multiRooms = []
   console.log('Logging into gitter ...')
-  const user = await gitter.currentUser()
+  var user
+  try {
+    user = await gitter.currentUser()
+  } catch (err) {
+    console.log('Crashed logging into gitter: ' + err)
+    process.exit(3)
+  }
   console.log('You are logged in as:', user.username)
   var rooms = await user.rooms()
   console.log('rooms ' + rooms.length)
@@ -231,16 +403,15 @@ async function go () {
         console.log('Target room found: ' + room.name)
       }
     }
-
   }
 
-  var targetRoomName = 'solid/chat'
   var targetRoom = roomIndex[targetRoomName]
   if (targetRoom) {
     try {
       await doRoom(targetRoom)
     } catch (err) {
-      console.log(`Error processing room ${targetRoom.name}:` + err)
+      console.log(`Error processing room ${targetRoom.name}:` + err )
+      console.log(` stack` + err.stack)
       process.exit(1)
     }
   } else {
@@ -253,7 +424,7 @@ async function go () {
   var orgs = await user.orgs()
   console.log('orgs ' + orgs.length)
 
-  saveEverythingBack()
+  await saveEverythingBack()
   console.log('ENDS')
 }
 

@@ -4,7 +4,13 @@
 // and https://developer.gitter.im/docs/rest-api
 
 const command = process.argv[2]
-const targetRoomName = process.argv[3]
+const targetRoomName = process.argv[3] // solid/chat
+const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
+
+if (!archiveBaseURI) {
+  console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
+  process.exit(1)
+}
 
 var Gitter = require('node-gitter')
 var $rdf = require('rdflib')
@@ -27,7 +33,7 @@ if (!SOLID_TOKEN) {
   process.exit(2)
 }
 
-const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
+// const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
 const peopleBaseURI = archiveBaseURI + 'Person/'
 
 /// ///////////////////////////// Solid Bits
@@ -130,13 +136,14 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
   await folderFetcher.load(chatDocument)
   let messages = kb.each(chatChannel, ns.wf('message'), null, chatDocument)
   if (messages.length === 0) {
-    console.trace('  INCONSITENCY -- no chat message in file ' + chatDocument)
-    throw new Value
+    let msg = '  INCONSITENCY -- no chat message in file ' + chatDocument
+    console.trace(msg)
+    throw new Error(msg)
   }
   let sortMe = messages.map(m => [kb.any(m, ns.dct('created')), m])
   sortMe.sort()
   if (backwards) sortMe.reverse()
-  console.log((backwards? 'Latest' : 'Earliest' ) +  ' message in solid chat is ' + sortMe[0][1])
+  console.log((backwards ? 'Latest' : 'Earliest') + ' message in solid chat is ' + sortMe[0][1])
   return sortMe[0][1]
 }
 
@@ -269,7 +276,7 @@ async function doRoom (room) {
     var newId = findEarliestId(messages)
     for (let i = 0; i < 30; i++) {
       newId = await extendBeforeId(newId)
-      if (!newId)  {
+      if (!newId) {
         console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
         return
       }
@@ -280,7 +287,7 @@ async function doRoom (room) {
       console.log(' ... pause ...')
       await delay(3000) // ms  give the API a rest
     }
-    console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages } new messages `)
+    console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
   }
 
   async function initialize () {
@@ -319,7 +326,7 @@ async function doRoom (room) {
     let messages = await gitterRoom.chatMessages({limit: 100, beforeId: id})
     console.log('      found ' + messages.length)
     if (messages.length === 0) {
-      console.log('    END OF BACK FILL - UP TO DATE  ====== ' )
+      console.log('    END OF BACK FILL - UP TO DATE  ====== ')
       return null
     }
     for (let gitterMessage of messages) {
@@ -339,14 +346,13 @@ async function doRoom (room) {
 
   if (command === 'archive') {
     await extendArchiveBack()
-  } else  if (command === 'catchup') {
+  } else if (command === 'catchup') {
     await catchup()
-  } else  if (command === 'init') {
+  } else if (command === 'init') {
     initialize()
   }
-  return
 
-
+/*
   if (command != 'archive') return
   var count = 0
   while (count < 30) { // avoid limit on requests
@@ -371,6 +377,7 @@ async function doRoom (room) {
     }
     messages = more
   }
+  */
 }
 
 async function go () {
@@ -410,7 +417,7 @@ async function go () {
     try {
       await doRoom(targetRoom)
     } catch (err) {
-      console.log(`Error processing room ${targetRoom.name}:` + err )
+      console.log(`Error processing room ${targetRoom.name}:` + err)
       console.log(` stack` + err.stack)
       process.exit(1)
     }
@@ -418,13 +425,15 @@ async function go () {
     console.log('## Cant find target room ' + targetRoomName)
   }
 
+  await saveEverythingBack()
+
+/*
   var repos = await user.repos()
   console.log('repos ' + repos.length)
 
   var orgs = await user.orgs()
   console.log('orgs ' + orgs.length)
-
-  await saveEverythingBack()
+*/
   console.log('ENDS')
 }
 

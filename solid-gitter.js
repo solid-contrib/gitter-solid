@@ -49,7 +49,12 @@ const peopleBaseURI = archiveBaseURI + 'Person/'
 
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
-const fetcher = new $rdf.Fetcher(store, {timeout: 900000}) // ms
+
+const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
+
+const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
+
+// const fetcher = new $rdf.Fetcher(store, {timeout: 900000}) // ms
 const updater = new $rdf.UpdateManager(store)
 // const updater = new $rdf.UpdateManager(store)
 
@@ -265,6 +270,78 @@ async function storeMessage (chatChannel, gitterMessage) {
   return message
 }
 
+/** Update message friomn update operation
+*
+*
+  Input payload Like   {"operation":"update","model":{
+"id":"5c97d7ed5547f774485bbf05",
+"text":"The quick red fox",
+"html":"The quick red fox","sent":"2019-03-24T19:18:05.278Z","editedAt":"2019-03-24T19:18:12.757Z","fromUser":{"id":"54d26c98db8155e6700f7312","username":"timbl","displayName":"Tim Berners-Lee","url":"/timbl","avatarUrl":"https://avatars-02.gitter.im/gh/uv/4/timbl","avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60","avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128","v":30,"gv":"4"},"unread":true,"readBy":3,"urls":[],"mentions":[],"issues":[],"meta":[],"v":2}}
+*/
+async function updateMessage (chatChannel, payload) {
+  var sent = new Date(payload.sent)
+  var chatDocument = chatDocumentFromDate(chatChannel, sent)
+  var message = $rdf.sym(chatDocument.uri + '#' + payload.id)
+  await loadIfExists(chatDocument)
+  var found = store.any(message, ns.sioc('content'))
+  if (!found) {
+    console.error('DID NOT FIND MESSAGE TO UPDATE ' + payload.id)
+    return
+  }
+
+  console.log(`Updating  ${payload.sent} message ${message}`)
+
+  var del = []
+  var ins = []
+  if (payload.text) {
+    let oldText = kb.the(message, ns.sioc('content'))
+    if (oldText && payload.text === oldText) {
+      console.log(` text unchanged as <${oldText}>`)
+    } else {
+      del.push($rdf.st(message, ns.sioc('content'), oldText, chatDocument))
+      ins.push($rdf.st(message, ns.sioc('content'), payload.text, chatDocument))
+    }
+  }
+  if (payload.html) {
+    let oldText = kb.the(message, ns.sioc('richContent'))
+    if (oldText && payload.text === oldText.value) {
+      console.log(` text unchanged as <${oldText}>`)
+    } else {
+      if (oldText) {
+        del.push($rdf.st(message, ns.sioc('richContent'), oldText, chatDocument))
+      }
+      ins.push($rdf.st(message, ns.sioc('richContent'), payload.html, chatDocument))
+    }
+  }
+  if (ins.length && payload.editedAt) {
+    ins.push($rdf.st(message, ns.dct('modified'), new Date(payload.editedAt), chatDocument))
+  }
+  try {
+    await updater.update(del, ins)
+  } catch (err) {
+    console.error('\n\nERROR UPDATING MESSAGE ' + err)
+  }
+}
+
+async function deleteMessage (chatChannel, payload) {
+  var chatDocument = chatDocumentFromDate(chatChannel, new Date()) // @@ guess now
+  var message = $rdf.sym(chatDocument.uri + '#' + payload.id)
+  await loadIfExists(chatDocument)
+  var found = store.any(message, ns.sioc('content'))
+  if (!found) {
+    console.error('DID NOT FIND MESSAGE TO UPDATE ' + payload.id)
+    return
+  }
+  console.log(`Deleting  ${payload.sent} message ${message}`)
+  var del = store.connectedStatements(message)
+  try {
+    await updater.update(del, [])
+  } catch (err) {
+    console.error('\n\nERROR Deeleting MESSAGE ' + err)
+  }
+  console.log(' Deeleted OK.' + message)
+}
+
 /// /////////////////////////////  Do Room
 
 async function doRoom (room) {
@@ -371,30 +448,34 @@ async function doRoom (room) {
     events.on('snapshot', function (snapshot) {
       console.log(snapshot.length + ' messages in the snapshot')
     })
-    var myUpdater = store.updater
-    console.log('store ' + store)
-    console.log('myUpdater ' + myUpdater)
 
    // The 'chatMessages' event is emitted on each new message
-    events.on('chatMessages', async function (message) {
-      console.log('A message was ' + message.operation)
-      console.log('Text: ', message.model.text)
-      console.log('message object: ', JSON.stringify(message))
-      if (message.operation === 'create') {
-        var solidMessage = await storeMessage(solidChannel, message.model)
+    events.on('chatMessages', async function (gitterEvent) {
+      console.log('A gitterEvent was ' + gitterEvent.operation)
+      console.log('Text: ', gitterEvent.model.text)
+      console.log('gitterEvent object: ', JSON.stringify(gitterEvent))
+      if (gitterEvent.operation === 'create') {
+        var solidMessage = await storeMessage(solidChannel, gitterEvent.model)
         console.log('creating solid message ' + solidMessage)
         var sts = store.connectedStatements(solidMessage)
         try {
-          await myUpdater.update([], sts)
+          await updater.update([], sts)
+          // await saveEverythingBack() // @@ change to patch as much more efficioent
           console.log(`Patched new message ${solidMessage} in `)
         } catch (err) {
           console.error(`Error saving new message ${solidMessage} ` + err)
           throw err
         }
-      } else if (message.operation === 'patch') {
+      } else if (gitterEvent.operation === 'remove') { // deleteMessage
+        console.log('Deleting existing message:')
+        await deleteMessage(solidChannel, gitterEvent.model)
+      } else if (gitterEvent.operation === 'update') { // deleteMessage
+        console.log('Updating existing message:')
+        await updateMessage(solidChannel, gitterEvent.model)
+      } else if (gitterEvent.operation === 'patch') {
         console.log('Ignoring patch')
       } else {
-        console.log('unhandled gitter event operation: ' + message.operation)
+        console.log('unhandled gitter event operation: ' + gitterEvent.operation)
       }
     })
     console.log('streaming ...')
@@ -465,9 +546,14 @@ async function doRoom (room) {
 }
 
 async function go () {
-  console.log('Target roomm name: ' + targetRoomName)
   var oneToOnes = []
   var multiRooms = []
+
+  console.log('Target roomm name: ' + targetRoomName)
+
+  console.log('Log into solid')
+  var session = await auth.login()
+
   console.log('Logging into gitter ...')
   var user
   try {

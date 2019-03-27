@@ -169,7 +169,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
     console.trace(msg)
     throw new Error(msg)
   }
-  let sortMe = messages.map(gitterMessage => [folderStore.any(gitterMessage, ns.dct('created')), gitterMessage])
+  let sortMe = messages.map(message => [folderStore.any(message, ns.dct('created')), message])
   sortMe.sort()
   if (backwards) sortMe.reverse()
   console.log((backwards ? 'Latest' : 'Earliest') + ' message in solid chat is ' + sortMe[0][1])
@@ -247,7 +247,7 @@ async function storeMessage (chatChannel, gitterMessage) {
 
   await loadIfExists(chatDocument)
   if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
-    console.log(`  already got ${gitterMessage.sent} message ${message}`)
+    // console.log(`  already got ${gitterMessage.sent} message ${message}`)
     oldMessages += 1
     return // alraedy got it
   }
@@ -337,7 +337,8 @@ async function deleteMessage (chatChannel, payload) {
   try {
     await updater.update(del, [])
   } catch (err) {
-    console.error('\n\nERROR Deeleting MESSAGE ' + err)
+    console.error('\n\n Error deleting message: ' + err)
+    return
   }
   console.log(' Deeleted OK.' + message)
 }
@@ -402,8 +403,9 @@ async function doRoom (room) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
       store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
       await putResource(newChatDoc)
+      console.log('New chat channel created. ' + solidChannel)
     } else {
-      console.log('Chat channel doc already exists:' + newChatDoc)
+      console.log('Chat channel doc already exists:' + solidChannel)
     }
   }
 
@@ -466,16 +468,16 @@ async function doRoom (room) {
           console.error(`Error saving new message ${solidMessage} ` + err)
           throw err
         }
-      } else if (gitterEvent.operation === 'remove') { // deleteMessage
+      } else if (gitterEvent.operation === 'remove') {
         console.log('Deleting existing message:')
         await deleteMessage(solidChannel, gitterEvent.model)
-      } else if (gitterEvent.operation === 'update') { // deleteMessage
+      } else if (gitterEvent.operation === 'update') {
         console.log('Updating existing message:')
         await updateMessage(solidChannel, gitterEvent.model)
       } else if (gitterEvent.operation === 'patch') {
         console.log('Ignoring patch')
       } else {
-        console.log('unhandled gitter event operation: ' + gitterEvent.operation)
+        console.warn('Unhandled gitter event operation: ' + gitterEvent.operation)
       }
     })
     console.log('streaming ...')
@@ -516,33 +518,6 @@ async function doRoom (room) {
   } else if (command === 'init') {
     initialize()
   }
-
-/*
-  if (command != 'archive') return
-  var count = 0
-  while (count < 30) { // avoid limit on requests
-    count += 1
-    for (var gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage)
-    }
-    await saveEverythingBack()
-
-    var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
-    sortMe.sort()
-    const earliest = sortMe[0][1]
-    const latest = sortMe.slice(-1)[0][1]
-    console.log(`\n\nearliest message at ${earliest.sent} : ` + earliest.id)
-    console.log(`latest message at ${latest.sent} : ` + latest.id)
-    var more = await gitterRoom.chatMessages({limit: 100, beforeId: earliest.id}) // @@@@ ?
-    console.log(' eg now fetched one sent ' + more[0].sent)
-
-    if (more.length === 0) {
-      console.log('=============== end of messagews as none found')
-      return
-    }
-    messages = more
-  }
-  */
 }
 
 async function go () {

@@ -22,20 +22,29 @@ if (!ns.wf) {
 }
 // see https://www.npmjs.com/package/node-gitter
 
-const GITTER_TOKEN = process.env.GITTER_TOKEN
-console.log('GITTER_TOKEN ' + GITTER_TOKEN)
+var GITTER_TOKEN = process.env.GITTER_TOKEN
+if (!GITTER_TOKEN) {
+  // await load()
+}
+// console.log('GITTER_TOKEN ' + GITTER_TOKEN)
 const gitter = new Gitter(GITTER_TOKEN)
 
+/* Solid Authentication
+*/
+/*
 const SOLID_TOKEN = process.env.SOLID_TOKEN
 console.log('SOLID_TOKEN ' + SOLID_TOKEN.length)
 if (!SOLID_TOKEN) {
   console.log('NO SOLID TOKEN')
   process.exit(2)
 }
+*/
 
-const normalOptions = {headers: {Authorization: 'Bearer ' + SOLID_TOKEN}}
+const normalOptions = {
+//   headers: {Authorization: 'Bearer ' + SOLID_TOKEN}
+ }
 const forcingOptions = {
-  headers: {Authorization: 'Bearer ' + SOLID_TOKEN},
+  // headers: {Authorization: 'Bearer ' + SOLID_TOKEN},
   force: true }
 
 function clone (options) {
@@ -94,7 +103,7 @@ function chatChannelFromGitterName (gitterName) {
   return $rdf.sym(archiveBaseURI + segment + '/index.ttl#this')
 }
 
-/** Track gitter useres
+/** Track gitter users
 
 */
 
@@ -133,7 +142,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
   var folderStore = $rdf.graph()
   var folderFetcher = new $rdf.Fetcher(folderStore)
   async function earliestSubfolder (parent) {
-    console.log('            parent ' + parent)
+    // console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
     var resp = await folderFetcher.load(parent, clone(forcingOptions)) // Force fetch as will have changed
     // await delay(3000) // @@@@@@@ async prob??
@@ -346,9 +355,7 @@ async function deleteMessage (chatChannel, payload) {
 /// /////////////////////////////  Do Room
 
 async function doRoom (room) {
-  console.log('doing room ' + room.name)
-  console.log('room.users ' + room.users)
-  console.log('room.id ' + room.id)
+  console.log(`Doing room ${room.id}:  ${room.name}`)
 
   var gitterRoom = await gitter.rooms.find(room.id)
   var solidChannel = chatChannelFromGitterName(room.name)
@@ -371,26 +378,27 @@ async function doRoom (room) {
     for (let gitterMessage of messages) {
       await storeMessage(solidChannel, gitterMessage)
     }
+    await saveEverythingBack()
     if (oldMessages) {
       console.log('End catchup. Found message we alreas had.')
-      return
+      return true
     }
-    await saveEverythingBack()
     var newId = findEarliestId(messages)
     for (let i = 0; i < 30; i++) {
       newId = await extendBeforeId(newId)
       if (!newId) {
         console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
-        return
+        return true
       }
       if (oldMessages) {
         console.log(`End catchup. Found message we already had, after ${newMessages} .`)
-        return
+        return true
       }
       console.log(' ... pause ...')
       await delay(3000) // ms  give the API a rest
     }
     console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
+    return false
   }
 
   async function initialize () {
@@ -513,7 +521,13 @@ async function doRoom (room) {
   } else if (command === 'catchup') {
     await catchup()
   } else if (command === 'stream') {
-    // await catchup()
+    console.log('catching up to make sure we don\'t miss any when we stream')
+    var ok = await catchup()
+    if (!ok) {
+      console.error('catching up FAILED so NOT starting stream as we would get a gap!')
+      throw new Error('Not caught up. Cant stream.')
+    }
+    console.log('Catchup done. Now set up stream.')
     await stream(store)
   } else if (command === 'init') {
     initialize()
@@ -565,6 +579,10 @@ async function go () {
       console.log(`Error processing room ${targetRoom.name}:` + err)
       console.log(` stack` + err.stack)
       process.exit(1)
+    }
+    if (command !== 'stream') {
+      console.log('Done, exiting. ')
+      process.exit(0)
     }
   } else {
     console.log('## Cant find target room ' + targetRoomName)

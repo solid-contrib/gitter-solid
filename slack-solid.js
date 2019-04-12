@@ -1,33 +1,41 @@
-// Gitter chat data to solid
-// like GITTER_TOKEN 1223487...984 node solid-gitter.js
-// See https://developer.gitter.im/docs/welcome
-// and https://developer.gitter.im/docs/rest-api
+// Slack chat data to solid
+
+// See https://api.slack.com/methods
+// See https://www.npmjs.com/package/slack
+// and https://api.slack.com/methods/conversations.list
+
+// and https://www.npmjs.com/package/slack
 
 const command = process.argv[2]
 const targetRoomName = process.argv[3] // solid/chat
 const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
 
 if (!archiveBaseURI) {
-  console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
+  console.error('syntax:  node slack-solid.js  <command> <chatroom>  <solid archive root>')
   process.exit(1)
 }
 
-var Gitter = require('node-gitter')
-var $rdf = require('rdflib')
+const token = process.env.SLACK_TOKEN
+const Slack = require('slack')
+const bot = new Slack({token})
+
+const $rdf = require('rdflib')
 const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 
 if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
-// see https://www.npmjs.com/package/node-gitter
 
-var GITTER_TOKEN = process.env.GITTER_TOKEN
-if (!GITTER_TOKEN) {
+bot.api.test({hyper:'card'}).then(console.log)
+
+// see https://www.npmjs.com/package/node-slack
+
+if (!SLACK_TOKEN) {
   // await load()
 }
-// console.log('GITTER_TOKEN ' + GITTER_TOKEN)
-const gitter = new Gitter(GITTER_TOKEN)
+// console.log('SLACK_TOKEN ' + SLACK_TOKEN)
+const slack = new Slack(SLACK_TOKEN)
 
 /* Solid Authentication
 */
@@ -58,14 +66,9 @@ const peopleBaseURI = archiveBaseURI + 'Person/'
 
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
-
 const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-
 const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
-
-// const fetcher = new $rdf.Fetcher(store, {timeout: 900000}) // ms
 const updater = new $rdf.UpdateManager(store)
-// const updater = new $rdf.UpdateManager(store)
 
 function delay (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -78,58 +81,23 @@ function chatDocumentFromDate (chatChannel, date) {
   return $rdf.sym(path)
 }
 
-/* Test version of update
-*/
 
-/*
-async function update (ddd, sts) {
-  const doc = sts[0].why
-  // console.log('   Delete ' + ddd.length )
-  console.log('   Insert ' + sts.length + ' in ' + doc)
-  for (let i = 0; i < sts.length; i++) {
-    let st = sts[i]
-    console.log(`       ${i}: ${st.subject} ${st.predicate} ${st.object} .`)
-  }
-}
-*/
-
-/** Decide URI of solid chat vchanel from name of gitter room
+/** Decide URI of solid chat vchanel from name of slack room
  *
- * @param gitterName {String} - like 'solid/chat'
+ * @param slackName {String} - like 'solid/chat'
 */
-function chatChannelFromGitterName (gitterName) {
+function chatChannelFromSlackName (slackName) {
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
-  let segment = gitterName.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
+  let segment = slackName.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
   return $rdf.sym(archiveBaseURI + segment + '/index.ttl#this')
 }
 
-/** Track gitter users
-
-*/
 
 async function putResource (doc) {
   delete fetcher.requested[doc.uri] // invalidate read cache @@ should be done by fetcher in future
   return fetcher.putBack(doc, clone(normalOptions))
 }
 
-async function loadIfExists (doc) {
-  try {
-    // delete fetcher.requested[doc.uri]
-    await fetcher.load(doc, clone(normalOptions))
-    return true
-  } catch (err) {
-    if (err.response && err.response.status && err.response.status === 404) {
-      console.log('    No chat file yet, creating later ' + doc)
-      return false
-    } else {
-      console.log(' #### Error reading  file ' + err)
-      console.log('            error object  ' + JSON.stringify(err))
-      console.log('        err.response   ' + err.response)
-      console.log('        err.response.status   ' + err.response.status)
-      process.exit(4)
-    }
-  }
-}
 
 function suitable (x) {
   let tail = x.uri.slice(0, -1).split('/').slice(-1)[0]
@@ -198,7 +166,7 @@ async function saveEverythingBack () {
   toBePut = []
 }
 
-async function authorFromGitter (fromUser) {
+async function authorFromSlack (fromUser) {
   /* fromUser looks like
     "id": "53307734c3599d1de448e192",
     "username": "malditogeek",
@@ -239,39 +207,39 @@ async function authorFromGitter (fromUser) {
   }
   return person
 }
-/**  Convert gitter message to Solid
+/**  Convert slack message to Solid
  *
 */
-// See https://developer.gitter.im/docs/messages-resource
+// See https://developer.slack.im/docs/messages-resource
 
 var newMessages = 0
 var oldMessages = 0
 
-async function storeMessage (chatChannel, gitterMessage) {
-  var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
+async function storeMessage (chatChannel, slackMessage) {
+  var sent = new Date(slackMessage.sent) // Like "2014-03-25T11:51:32.289Z"
   // console.log('        Message sent on date ' + sent)
   var chatDocument = chatDocumentFromDate(chatChannel, sent)
-  var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
+  var message = $rdf.sym(chatDocument.uri + '#' + slackMessage.id) // like "53316dc47bfc1a000000000f"
   // console.log('          Solid Message  ' + message)
 
   await loadIfExists(chatDocument)
   if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
-    // console.log(`  already got ${gitterMessage.sent} message ${message}`)
+    // console.log(`  already got ${slackMessage.sent} message ${message}`)
     oldMessages += 1
     return // alraedy got it
   }
   newMessages += 1
-  console.log(`NOT got ${gitterMessage.sent} message ${message}`)
+  console.log(`NOT got ${slackMessage.sent} message ${message}`)
 
-  var author = await authorFromGitter(gitterMessage.fromUser)
+  var author = await authorFromSlack(slackMessage.fromUser)
   store.add(chatChannel, ns.wf('message'), message, chatDocument)
-  store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
-  if (gitterMessage.html && gitterMessage.html !== gitterMessage.text) { // is it new information?
-    store.add(message, ns.sioc('richContent'), gitterMessage.html, chatDocument) // @@ predicate??
+  store.add(message, ns.sioc('content'), slackMessage.text, chatDocument)
+  if (slackMessage.html && slackMessage.html !== slackMessage.text) { // is it new information?
+    store.add(message, ns.sioc('richContent'), slackMessage.html, chatDocument) // @@ predicate??
   }
   store.add(message, ns.dct('created'), sent, chatDocument)
-  if (gitterMessage.edited) {
-    store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
+  if (slackMessage.edited) {
+    store.add(message, ns.dct('modified'), new Date(slackMessage.edited), chatDocument)
   }
   store.add(message, ns.foaf('maker'), author, chatDocument)
   if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
@@ -285,7 +253,7 @@ async function storeMessage (chatChannel, gitterMessage) {
   Input payload Like   {"operation":"update","model":{
 "id":"5c97d7ed5547f774485bbf05",
 "text":"The quick red fox",
-"html":"The quick red fox","sent":"2019-03-24T19:18:05.278Z","editedAt":"2019-03-24T19:18:12.757Z","fromUser":{"id":"54d26c98db8155e6700f7312","username":"timbl","displayName":"Tim Berners-Lee","url":"/timbl","avatarUrl":"https://avatars-02.gitter.im/gh/uv/4/timbl","avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60","avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128","v":30,"gv":"4"},"unread":true,"readBy":3,"urls":[],"mentions":[],"issues":[],"meta":[],"v":2}}
+"html":"The quick red fox","sent":"2019-03-24T19:18:05.278Z","editedAt":"2019-03-24T19:18:12.757Z","fromUser":{"id":"54d26c98db8155e6700f7312","username":"timbl","displayName":"Tim Berners-Lee","url":"/timbl","avatarUrl":"https://avatars-02.slack.im/gh/uv/4/timbl","avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60","avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128","v":30,"gv":"4"},"unread":true,"readBy":3,"urls":[],"mentions":[],"issues":[],"meta":[],"v":2}}
 */
 async function updateMessage (chatChannel, payload) {
   var sent = new Date(payload.sent)
@@ -357,14 +325,14 @@ async function deleteMessage (chatChannel, payload) {
 async function doRoom (room) {
   console.log(`Doing room ${room.id}:  ${room.name}`)
 
-  var gitterRoom = await gitter.rooms.find(room.id)
-  var solidChannel = chatChannelFromGitterName(room.name)
+  var slackRoom = await slack.rooms.find(room.id)
+  var solidChannel = chatChannelFromSlackName(room.name)
   console.log('    solid channel ' + solidChannel)
 
-  // var users = await gitterRoom.users()
+  // var users = await slackRoom.users()
 
   function findEarliestId (messages) {
-    var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
+    var sortMe = messages.map(slackMessage => [slackMessage.sent, slackMessage])
     sortMe.sort()
     const earliest = sortMe[0][1]
     return earliest.id
@@ -373,10 +341,10 @@ async function doRoom (room) {
   async function catchup () {
     newMessages = 0
     oldMessages = 0
-    var messages = await gitterRoom.chatMessages() // @@@@ ?
+    var messages = await slackRoom.chatMessages() // @@@@ ?
     console.log(' messages ' + messages.length)
-    for (let gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage)
+    for (let slackMessage of messages) {
+      await storeMessage(solidChannel, slackMessage)
     }
     await saveEverythingBack()
     if (oldMessages) {
@@ -387,7 +355,7 @@ async function doRoom (room) {
     for (let i = 0; i < 30; i++) {
       newId = await extendBeforeId(newId)
       if (!newId) {
-        console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
+        console.log(`End catchup. No more slack messages after ${newMessages} new messages.`)
         return true
       }
       if (oldMessages) {
@@ -402,14 +370,14 @@ async function doRoom (room) {
   }
 
   async function initialize () {
-    const solidChannel = chatChannelFromGitterName(room.name)
+    const solidChannel = chatChannelFromSlackName(room.name)
     console.log('    solid channel ' + solidChannel)
     // Make the main chat channel file
     var newChatDoc = solidChannel.doc()
     let already = await loadIfExists(newChatDoc)
     if (!already) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
-      store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
+      store.add(solidChannel, ns.dc('title'), room.name + ' slack chat archive', newChatDoc)
       await putResource(newChatDoc)
       console.log('New chat channel created. ' + solidChannel)
     } else {
@@ -434,16 +402,16 @@ async function doRoom (room) {
 
   /*  Like:  {"operation":"create","model":{
   "id":"5c951d6ba21ce51a20a3b3b3",
-  "text":"@timbl testing the gitter-solid importer",
+  "text":"@timbl testing the slack-solid importer",
   "status":true,
-  "html":"<span data-link-type=\"mention\" data-screen-name=\"timbl\" class=\"mention\">@timbl</span> testing the gitter-solid importer",
+  "html":"<span data-link-type=\"mention\" data-screen-name=\"timbl\" class=\"mention\">@timbl</span> testing the slack-solid importer",
   "sent":"2019-03-22T17:37:47.079Z",
   "fromUser":{
       "id":"54d26c98db8155e6700f7312",
       "username":"timbl"
       ,"displayName":"Tim Berners-Lee",
       "url":"/timbl",
-      "avatarUrl":"https://avatars-02.gitter.im/gh/uv/4/timbl",
+      "avatarUrl":"https://avatars-02.slack.im/gh/uv/4/timbl",
       "avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60",
       "avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128",
       "v":30,"gv":"4"}
@@ -453,7 +421,7 @@ async function doRoom (room) {
 
   */
   async function stream (store) {
-    var events = gitterRoom.streaming().chatMessages()
+    var events = slackRoom.streaming().chatMessages()
 
    // The 'snapshot' event is emitted once, with the last messages in the room
     events.on('snapshot', function (snapshot) {
@@ -461,12 +429,12 @@ async function doRoom (room) {
     })
 
    // The 'chatMessages' event is emitted on each new message
-    events.on('chatMessages', async function (gitterEvent) {
-      console.log('A gitterEvent was ' + gitterEvent.operation)
-      console.log('Text: ', gitterEvent.model.text)
-      console.log('gitterEvent object: ', JSON.stringify(gitterEvent))
-      if (gitterEvent.operation === 'create') {
-        var solidMessage = await storeMessage(solidChannel, gitterEvent.model)
+    events.on('chatMessages', async function (slackEvent) {
+      console.log('A slackEvent was ' + slackEvent.operation)
+      console.log('Text: ', slackEvent.model.text)
+      console.log('slackEvent object: ', JSON.stringify(slackEvent))
+      if (slackEvent.operation === 'create') {
+        var solidMessage = await storeMessage(solidChannel, slackEvent.model)
         console.log('creating solid message ' + solidMessage)
         var sts = store.connectedStatements(solidMessage)
         try {
@@ -477,16 +445,16 @@ async function doRoom (room) {
           console.error(`Error saving new message ${solidMessage} ` + err)
           throw err
         }
-      } else if (gitterEvent.operation === 'remove') {
+      } else if (slackEvent.operation === 'remove') {
         console.log('Deleting existing message:')
-        await deleteMessage(solidChannel, gitterEvent.model)
-      } else if (gitterEvent.operation === 'update') {
+        await deleteMessage(solidChannel, slackEvent.model)
+      } else if (slackEvent.operation === 'update') {
         console.log('Updating existing message:')
-        await updateMessage(solidChannel, gitterEvent.model)
-      } else if (gitterEvent.operation === 'patch') {
+        await updateMessage(solidChannel, slackEvent.model)
+      } else if (slackEvent.operation === 'patch') {
         console.log('Ignoring patch')
       } else {
-        console.warn('Unhandled gitter event operation: ' + gitterEvent.operation)
+        console.warn('Unhandled slack event operation: ' + slackEvent.operation)
       }
     })
     console.log('streaming ...')
@@ -496,21 +464,21 @@ async function doRoom (room) {
   */
   async function extendBeforeId (id) {
     console.log(`   Looking for messages before ${id}`)
-    let messages = await gitterRoom.chatMessages({limit: 100, beforeId: id})
+    let messages = await slackRoom.chatMessages({limit: 100, beforeId: id})
     console.log('      found ' + messages.length)
     if (messages.length === 0) {
       console.log('    END OF BACK FILL - UP TO DATE  ====== ')
       return null
     }
-    for (let gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage)
+    for (let slackMessage of messages) {
+      await storeMessage(solidChannel, slackMessage)
     }
     await saveEverythingBack()
     let m1 = await firstMessage(solidChannel)
     let d1 = kb.anyValue(m1, ns.dct('created'))
     console.log('After extension back, earliest message now ' + d1)
 
-    var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
+    var sortMe = messages.map(slackMessage => [slackMessage.sent, slackMessage])
     sortMe.sort()
     const earliest = sortMe[0][1]
 
@@ -555,12 +523,12 @@ async function go () {
   console.log('Log into solid')
   var session = await auth.login()
 
-  console.log('Logging into gitter ...')
+  console.log('Logging into slack ...')
   var user
   try {
-    user = await gitter.currentUser()
+    user = await slack.currentUser()
   } catch (err) {
-    console.log('Crashed logging into gitter: ' + err)
+    console.log('Crashed logging into slack: ' + err)
     process.exit(3)
   }
   console.log('You are logged in as:', user.username)
@@ -602,13 +570,6 @@ async function go () {
 
   await saveEverythingBack()
 
-/*
-  var repos = await user.repos()
-  console.log('repos ' + repos.length)
-
-  var orgs = await user.orgs()
-  console.log('orgs ' + orgs.length)
-*/
   console.log('ENDS')
 }
 

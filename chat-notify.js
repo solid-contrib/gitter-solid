@@ -2,13 +2,15 @@
 *
 */
 // import DateFolder  from '../solid-ui/src/chat/dateFolders.js'
-const DateFolder = require('../solid-ui/src/chat/dateFolders.js')
+const DateFolder = require('../solid-ui/src/chat/dateFolder.js')
 
 const fs = require('fs')
 const command = process.argv[2]
 
 // var UI = require('../solid-ui/lib/index')
-var $rdf = require('rdflib')
+/* global $rdf */
+
+$rdf = require('rdflib')
 const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 const a = ns.rdf('type')
@@ -16,17 +18,8 @@ const a = ns.rdf('type')
 const solidChatURI = process.argv[3] || 'https://timbl.com/timbl/Public/Archive/solid/chat/index.ttl#this'
 const solidChat = $rdf.sym(solidChatURI)
 
-// see https://www.npmjs.com/package/node-gitter
-/*
-const SOLID_TOKEN = process.env.SOLID_TOKEN
-console.log('SOLID_TOKEN ' + SOLID_TOKEN.length)
-if (!SOLID_TOKEN) {
-  console.log('NO SOLID TOKEN')
-  process.exit(2)
-}
-
-*/
-/// ///////////////////////////// Solid Bits
+// const messageBodyStyle = 'white-space: pre-wrap; width: 99%; font-size:100%; border: 0.07em solid #eee; padding: .3em 0.5em; margin: 0.1em;',
+const messageBodyStyle =  require('../solid-ui/src/style').messageBodyStyle
 
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
@@ -102,7 +95,6 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
     console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
     var resp = await folderFetcher.load(parent, clone(forcingOptions)) // Force fetch as will have changed
-    // await delay(3000) // @@@@@@@ async prob??
 
     var kids = folderStore.each(parent, ns.ldp('contains'))
     kids = kids.filter(suitable)
@@ -121,7 +113,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
   await folderFetcher.load(chatDocument, clone(normalOptions))
   let messages = folderStore.each(chatChannel, ns.wf('message'), null, chatDocument)
   if (messages.length === 0) {
-    let msg = '  INCONSITENCY -- no chat message in file ' + chatDocument
+    let msg = '  INCONSISTENCY -- no chat message in file ' + chatDocument
     console.trace(msg)
     throw new Error(msg)
   }
@@ -176,7 +168,9 @@ async function go () {
   if (command === 'notify') {
     for (let sub of subscriptions) {
       var chatChannel = kb.the(sub, ns.schema('object'))
-      var finalMessage = await firstMessage(chatChannel, true)
+      const dateFolder = new DateFolder(chatChannel, 'chat.ttl', ns.wf('message'))
+
+      var finalMessage = await dateFolder.firstLeaf(true)
       var lastNotified = kb.the(sub, ns.solid('lastNotified'))
       if (!lastNotified) {
         console.log('No previous notifications -- so start from here: ' + finalMessage)
@@ -186,7 +180,6 @@ async function go () {
         if (lastNotified.sameTerm(finalMessage)) {
           console.log('      No new messagess')
         } else {
-          const dateFolder = new DateFolder(chatChannel, 'chat.ttl')
           await fetcher.load(lastNotified)
           var messageFile = finalMessage.doc()
           while (1) {
@@ -253,7 +246,7 @@ async function go () {
             } else {
               console.log('written file')
             }
-            console.log(htmlText)
+            // console.log(htmlText)
           })
         }
       }

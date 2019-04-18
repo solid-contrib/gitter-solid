@@ -5,13 +5,13 @@
 
 const command = process.argv[2]
 const targetRoomName = process.argv[3] // solid/chat
-const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
-
-if (!archiveBaseURI) {
+// const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
+/*
+if (command !== 'list' && !archiveBaseURI) {
   console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
   process.exit(1)
 }
-
+*/
 var Gitter = require('node-gitter')
 var $rdf = require('rdflib')
 const solidNamespace = require('solid-namespace')
@@ -29,6 +29,34 @@ if (!GITTER_TOKEN) {
 // console.log('GITTER_TOKEN ' + GITTER_TOKEN)
 const gitter = new Gitter(GITTER_TOKEN)
 
+// import readline from 'readline-promise';
+
+// const readLinePromise = require('readline-promise')
+const readline = require('readline')
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+  terminal: true
+})
+
+function question (q) {
+  return new Promise((resolve, reject) => {
+    rl.question(q + ' ', (a) => { // space for answer not to be crowded
+      rl.close()
+      resolve(a)
+    })
+  })
+}
+
+async function confirm (q) {
+  while (1) {
+    var a = await question(q)
+    if (a === 'yes' || a === 'y') return true
+    if (a === 'no' || a === 'n') return false
+    console.log('  Please reply y or n')
+  }
+}
 /* Solid Authentication
 */
 /*
@@ -42,7 +70,7 @@ if (!SOLID_TOKEN) {
 
 const normalOptions = {
 //   headers: {Authorization: 'Bearer ' + SOLID_TOKEN}
- }
+}
 const forcingOptions = {
   // headers: {Authorization: 'Bearer ' + SOLID_TOKEN},
   force: true }
@@ -50,9 +78,6 @@ const forcingOptions = {
 function clone (options) {
   return Object.assign({}, options)
 }
-
-// const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
-const peopleBaseURI = archiveBaseURI + 'Person/'
 
 /// ///////////////////////////// Solid Bits
 
@@ -67,7 +92,8 @@ const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
 const updater = new $rdf.UpdateManager(store)
 // const updater = new $rdf.UpdateManager(store)
 
-function delay (ms) {
+function delayMs (ms) {
+  console.log('pause ... ')
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
@@ -92,15 +118,34 @@ async function update (ddd, sts) {
   }
 }
 */
+// individualChatBaseURI', 'privateChatBaseURI', 'publicChatBaseURI
+function archiveBaseURIFromGitterRoom (room, config) {
+  return room.oneToOne ? config.individualChatBaseURI
+         : room.public ? config.publicChatBaseURI : config.privateChatBaseURI
+}
 
-/** Decide URI of solid chat vchanel from name of gitter room
+/** Decide URI of solid chat vchanel from properties of gitter room
  *
- * @param gitterName {String} - like 'solid/chat'
+ * @param room {Room} - like 'solid/chat'
 */
-function chatChannelFromGitterName (gitterName) {
+function chatChannelFromGitterRoom (room, config) {
+  var path
+  let segment = room.name.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
+  if (room.githubType === 'ORG') {
+    segment += '/_Organization' // make all multi rooms two level names
+  }
+  var archiveBaseURI = archiveBaseURIFromGitterRoom(room, config)
+  // console.log('archiveBaseURI ' + archiveBaseURI)
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
-  let segment = gitterName.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
-  return $rdf.sym(archiveBaseURI + segment + '/index.ttl#this')
+  if (room.oneToOne) {
+    var username = room.user.username
+    if (!username) throw new Error('one-one must have user username!')
+    console.log(`     ${room.githubType}: ${username}: ${room.name}`)
+    path = archiveBaseURI + username
+  } else {
+    path = archiveBaseURI + segment
+  }
+  return $rdf.sym(path + '/index.ttl#this')
 }
 
 /** Track gitter users
@@ -119,7 +164,7 @@ async function loadIfExists (doc) {
     return true
   } catch (err) {
     if (err.response && err.response.status && err.response.status === 404) {
-      console.log('    No chat file yet, creating later ' + doc)
+      // console.log('    No chat file yet, creating later ' + doc)
       return false
     } else {
       console.log(' #### Error reading  file ' + err)
@@ -145,7 +190,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
     // console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
     var resp = await folderFetcher.load(parent, clone(forcingOptions)) // Force fetch as will have changed
-    // await delay(3000) // @@@@@@@ async prob??
+    // await delayMs(3000) // @@@@@@@ async prob??
 
     var kids = folderStore.each(parent, ns.ldp('contains'))
     kids = kids.filter(suitable)
@@ -198,7 +243,7 @@ async function saveEverythingBack () {
   toBePut = []
 }
 
-async function authorFromGitter (fromUser) {
+async function authorFromGitter (fromUser, archiveBaseURI) {
   /* fromUser looks like
     "id": "53307734c3599d1de448e192",
     "username": "malditogeek",
@@ -219,22 +264,29 @@ async function authorFromGitter (fromUser) {
     }
     toBePut[doc.uri] = true
   }
-
+  const peopleBaseURI = archiveBaseURI + 'Person/'
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
   // console.log('     person id: ' + fromUser.id)
   // console.log('     person solid: ' + person)
-  try {
-    await fetcher.load(person.doc(), clone(normalOptions)) // If exists, fine... leave it
-  } catch (err) {
-    if (err.response && err.response.status && err.response.status === 404) {
-      console.log('No person file yet, creating ' + person)
-      await saveUserData(fromUser, person) // Patch the file into existence
-      return person
-    } else {
-      console.log(' #### Error reading person file ' + err)
-      console.log(' #### Error reading person file   ' + JSON.stringify(err))
-      console.log('        err.response   ' + err.response)
-      console.log('        err.response.status   ' + err.response.status)
+  var doc = person.doc()
+  if (toBePut[doc.uri]) { // already have stuff to save -> no need to load
+    // console.log(' (already started to person file) ' + doc)
+  } else {
+    try {
+      console.log(' fetching person file: ' + doc)
+
+      await fetcher.load(doc, clone(normalOptions)) // If exists, fine... leave it
+    } catch (err) {
+      if (err.response && err.response.status && err.response.status === 404) {
+        console.log('No person file yet, creating ' + person)
+        await saveUserData(fromUser, person) // Patch the file into existence
+        return person
+      } else {
+        console.log(' #### Error reading person file ' + err)
+        console.log(' #### Error reading person file   ' + JSON.stringify(err))
+        console.log('        err.response   ' + err.response)
+        console.log('        err.response.status   ' + err.response.status)
+      }
     }
   }
   return person
@@ -247,7 +299,7 @@ async function authorFromGitter (fromUser) {
 var newMessages = 0
 var oldMessages = 0
 
-async function storeMessage (chatChannel, gitterMessage) {
+async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
   var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
   // console.log('        Message sent on date ' + sent)
   var chatDocument = chatDocumentFromDate(chatChannel, sent)
@@ -263,7 +315,7 @@ async function storeMessage (chatChannel, gitterMessage) {
   newMessages += 1
   console.log(`NOT got ${gitterMessage.sent} message ${message}`)
 
-  var author = await authorFromGitter(gitterMessage.fromUser)
+  var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
   store.add(chatChannel, ns.wf('message'), message, chatDocument)
   store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
   if (gitterMessage.html && gitterMessage.html !== gitterMessage.text) { // is it new information?
@@ -354,36 +406,53 @@ async function deleteMessage (chatChannel, payload) {
 
 /// /////////////////////////////  Do Room
 
-async function doRoom (room) {
-  console.log(`Doing room ${room.id}:  ${room.name}`)
+async function doRoom (room, config) {
+  console.log(`\nDoing room ${room.id}:  ${room.name}`)
+  // console.log('@@ bare room: ' + JSON.stringify(room))
+  var gitterRoom
+  const solidChannel = chatChannelFromGitterRoom(room, config)
+  const archiveBaseURI = archiveBaseURIFromGitterRoom(room, config)
 
-  var gitterRoom = await gitter.rooms.find(room.id)
-  var solidChannel = chatChannelFromGitterName(room.name)
   console.log('    solid channel ' + solidChannel)
-
-  // var users = await gitterRoom.users()
 
   function findEarliestId (messages) {
     var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
+    if (sortMe.length === 0) return null
     sortMe.sort()
     const earliest = sortMe[0][1]
     return earliest.id
   }
 
+  async function show () {
+    let name = room.oneToOne ? '@' + room.user.username : room.name
+    console.log(`     ${room.githubType}: ${name}`)
+  }
+
+  async function details () {
+    let name = room.oneToOne ? '@' + room.user.username : room.name
+    console.log(`${room.githubType}: ${name}`)
+    console.log(JSON.stringify(room))
+  }
+
   async function catchup () {
     newMessages = 0
     oldMessages = 0
+    gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     var messages = await gitterRoom.chatMessages() // @@@@ ?
     console.log(' messages ' + messages.length)
     for (let gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage)
+      await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
     }
     await saveEverythingBack()
     if (oldMessages) {
-      console.log('End catchup. Found message we alreas had.')
+      console.log('End catchup. Found message we already had.')
       return true
     }
     var newId = findEarliestId(messages)
+    if (!newId) {
+      console.log('Catchup found no gitter messages.')
+      return true
+    }
     for (let i = 0; i < 30; i++) {
       newId = await extendBeforeId(newId)
       if (!newId) {
@@ -395,14 +464,14 @@ async function doRoom (room) {
         return true
       }
       console.log(' ... pause ...')
-      await delay(3000) // ms  give the API a rest
+      await delayMs(3000) // ms  give the API a rest
     }
     console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
     return false
   }
 
   async function initialize () {
-    const solidChannel = chatChannelFromGitterName(room.name)
+    const solidChannel = chatChannelFromGitterRoom(room, config)
     console.log('    solid channel ' + solidChannel)
     // Make the main chat channel file
     var newChatDoc = solidChannel.doc()
@@ -411,9 +480,11 @@ async function doRoom (room) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
       store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
       await putResource(newChatDoc)
-      console.log('New chat channel created. ' + solidChannel)
+      console.log('    New chat channel created. ' + solidChannel)
+      return false
     } else {
-      console.log('Chat channel doc already exists:' + solidChannel)
+      console.log(`    Chat channel doc ${solidChannel}already existed: ✅`)
+      return true
     }
   }
 
@@ -427,32 +498,13 @@ async function doRoom (room) {
       newId = await extendBeforeId(newId)
       if (!newId) return null
       console.log(' ... pause ...')
-      await delay(3000) // ms  give the API a rest
+      await delayMs(3000) // ms  give the API a rest
     }
     return newId
   }
 
-  /*  Like:  {"operation":"create","model":{
-  "id":"5c951d6ba21ce51a20a3b3b3",
-  "text":"@timbl testing the gitter-solid importer",
-  "status":true,
-  "html":"<span data-link-type=\"mention\" data-screen-name=\"timbl\" class=\"mention\">@timbl</span> testing the gitter-solid importer",
-  "sent":"2019-03-22T17:37:47.079Z",
-  "fromUser":{
-      "id":"54d26c98db8155e6700f7312",
-      "username":"timbl"
-      ,"displayName":"Tim Berners-Lee",
-      "url":"/timbl",
-      "avatarUrl":"https://avatars-02.gitter.im/gh/uv/4/timbl",
-      "avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60",
-      "avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128",
-      "v":30,"gv":"4"}
-   ,"unread":true,
-   "readBy":0,
-   "urls":[],"mentions":[{"screenName":"timbl","userId":"54d26c98db8155e6700f7312","userIds":[]}],"issues":[],"meta":[],"v":1}}
-
-  */
   async function stream (store) {
+    gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     var events = gitterRoom.streaming().chatMessages()
 
    // The 'snapshot' event is emitted once, with the last messages in the room
@@ -466,7 +518,7 @@ async function doRoom (room) {
       console.log('Text: ', gitterEvent.model.text)
       console.log('gitterEvent object: ', JSON.stringify(gitterEvent))
       if (gitterEvent.operation === 'create') {
-        var solidMessage = await storeMessage(solidChannel, gitterEvent.model)
+        var solidMessage = await storeMessage(solidChannel, gitterEvent.model, archiveBaseURI)
         console.log('creating solid message ' + solidMessage)
         var sts = store.connectedStatements(solidMessage)
         try {
@@ -496,6 +548,7 @@ async function doRoom (room) {
   */
   async function extendBeforeId (id) {
     console.log(`   Looking for messages before ${id}`)
+    gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     let messages = await gitterRoom.chatMessages({limit: 100, beforeId: id})
     console.log('      found ' + messages.length)
     if (messages.length === 0) {
@@ -503,7 +556,7 @@ async function doRoom (room) {
       return null
     }
     for (let gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage)
+      await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
     }
     await saveEverythingBack()
     let m1 = await firstMessage(solidChannel)
@@ -516,8 +569,30 @@ async function doRoom (room) {
 
     return earliest.id
   }
-
-  if (command === 'archive') {
+  async function create() {
+    console.log('First make the solid chat object if necessary:')
+    await initialize()
+    console.log('Now first catchup  recent messages:')
+    var catchupDone = await catchup()
+    if (catchupDone) {
+      console.log('Initial catchup gave no messages, so no archive necessary.✅')
+      return null
+    }
+    console.log('Now extend the archive back hopefully all the way -- but check:')
+    let pickUpFrom = await extendArchiveBack()
+    if (pickUpFrom) {
+      console.log('Did NOT go all the way.   More archive sessions will be needed. ⚠️')
+    } else {
+      console.log('Did go all the way. You have the whole archive to date. ✅')
+    }
+    return pickUpFrom
+  }
+  // Body of doRoom
+  if (command === 'show') {
+    await show()
+  } else if (command === 'details') {
+      await details()
+  } else if (command === 'archive') {
     await extendArchiveBack()
   } else if (command === 'catchup') {
     await catchup()
@@ -531,29 +606,76 @@ async function doRoom (room) {
     console.log('Catchup done. Now set up stream.')
     await stream(store)
   } else if (command === 'init') {
-    console.log('First make the solid chat object:')
-    await initialize()
-    console.log('Now first catchup  recent messages:')
-    await catchup()
-    console.log('Now extend the archive back hopefully all the way -- but check:')
-    let pickUpFrom = await extendArchiveBack()
-    if (pickUpFrom) {
-      console.log('Did NOT go all the way.   More archive sessions will be needed.')
-    } else {
-      console.log('Did go all the way. You have the whole archive to date.')
-    }
-    return pickUpFrom
+    var already = await initialize()
+    // console.log('Solid channel already there:' + already)
+  } else if (command === 'create') {
+    await create()
   }
+}
+
+async function loadConfig () {
+  console.log('Log into solid')
+  var session = await auth.login()
+  var webId = session.webId
+  const me = $rdf.sym(webId)
+  console.log('Logged in to Solid as ' + me)
+  var gitterConfig = {}
+
+  await fetcher.load(me.doc())
+  const prefs = kb.the(me, ns.space('preferencesFile'), null, me.doc())
+  console.log('Loading prefs ' + prefs)
+  await fetcher.load(prefs)
+  console.log('Loaded prefs ✅')
+
+  var config = kb.the(me, ns.solid('gitterConfiguationFile'), null, prefs)
+  if (!config) {
+    console.log('You don\'t have a gitter configuration. ')
+    config = $rdf.sym(prefs.dir().uri + 'gitterConfiguration.ttl')
+    if (await confirm('Make a gitter config file now in your pod at ' + config)) {
+      console.log('    putting ' + config)
+      await kb.fetcher.webOperation('PUT', config.uri, {data: '', contentType: 'text/turtle'})
+      console.log('    getting ' + config)
+      await kb.fetcher.load(config)
+      await kb.updater.update([], [$rdf.st(me, ns.solid('gitterConfiguationFile'), config, prefs)])
+      await kb.updater.update([], [$rdf.st(config, ns.dct('title'), 'My gitter config file', config)])
+      console.log('Made new gitter config: ' + config)
+    } else {
+      console.log('Ok, exiting, no gitter config')
+      process.exit(4)
+    }
+  } else {
+    await fetcher.load(config)
+  }
+  console.log('Have gitter config ✅')
+
+  for (var opt of opts) {
+    var x = kb.anyValue(me, ns.solid(opt))
+    console.log(` Config option ${opt}: "${x}"`)
+    if (x) {
+      gitterConfig[opt] = x.trim()
+    } else {
+      console.log('\nThis must a a full https: URI ending in a slash, which folder on your pod you want gitter chat stored.')
+      x = await question('Value for ' + opt + '?')
+      if (x.length > 0 && x.endsWith('/')) {
+        await kb.updater.update([], [$rdf.st(me, ns.solid(opt), x, config)])
+        console.log(`saved config ${opt} =  ${x}`)
+      } else {
+        console.log('abort. exit.')
+        process.exit(6)
+      }
+    }
+    gitterConfig[opt] = x
+  }
+  console.log('We have all config data ✅')
+  return gitterConfig
 }
 
 async function go () {
   var oneToOnes = []
-  var multiRooms = []
-
+  var privateRooms = []
+  var publicRooms = []
+  var usernameIndex = {}
   console.log('Target roomm name: ' + targetRoomName)
-
-  console.log('Log into solid')
-  var session = await auth.login()
 
   console.log('Logging into gitter ...')
   var user
@@ -563,56 +685,115 @@ async function go () {
     console.log('Crashed logging into gitter: ' + err)
     process.exit(3)
   }
-  console.log('You are logged in as:', user.username)
+  console.log('You are logged into gitter as:', user.username)
   var rooms = await user.rooms()
   console.log('rooms ' + rooms.length)
   var roomIndex = {}
   for (let r = 0; r < rooms.length; r++) {
     var room = rooms[r]
-    const oneToOne = room.oneToOne
-    const noun = oneToOne ? 'OneToOne' : 'Room'
+    // const oneToOne = room.oneToOne
+    // const noun = oneToOne ? 'OneToOne' : 'Room'
     roomIndex[room.name] = room
-    if (oneToOne) {
+    if (room.oneToOne) {
       oneToOnes.push(room)
+      usernameIndex['@' + room.user.username] = room
     } else {
-      // console.log(`  ${noun} ${room.name} unread ${room.unreadItems}`)
-      multiRooms.push(room)
+      if (room.public) {
+        publicRooms.push(room)
+      } else {
+        privateRooms.push(room)
+      }
       if (room.name === targetRoomName) {
         console.log('Target room found: ' + room.name)
       }
     }
   }
+  if (command === 'list') {
+    console.log('List of private chats: one-one rooms:')
+    for (let r of oneToOnes) {
+      var username = r.user.username
+      if (!username) throw new Error('one-one must have user username!')
+      username = '@' + username
+      if (!targetRoomName) {
+        console.log(`     ${r.githubType}: ${username}: ${r.name}`)
+      }
+      if (r.name === targetRoomName || username === targetRoomName) {
+        console.log('      Found ' + username)
+        console.log(JSON.stringify(r))
+        if (room.public) throw new Error('@@@ One-One should not be public!!')
+      }
+    }
+    console.log('List of multi person PRIVATE rooms:')
+    for (let r of privateRooms) {
+      if (!targetRoomName) {
+        console.log(`     ${r.githubType}: ${r.name}  - PRIVATE`)
+      }
+      if (r.name === targetRoomName) {
+        console.log('      found ' + r.name)
+        console.log(JSON.stringify(r))
+      }
+    }
+    console.log('List of multi person Public rooms:')
+    for (let r of publicRooms) {
+      if (!targetRoomName) {
+        console.log(`     ${r.githubType}: ${r.name}  - Public`)
+      }
+      if (r.name === targetRoomName) {
+        console.log('      found ' + r.name)
+        console.log(JSON.stringify(r))
+      }
+    }
+    process.exit(0)
+  }
 
-  var targetRoom = roomIndex[targetRoomName]
-  if (targetRoom) {
+  var targetRoom
+  var roomsToDo = []
+  if (targetRoomName) {
+    if (targetRoomName === 'direct') {
+      roomsToDo = oneToOnes
+    } else if (targetRoomName === 'private') {
+      roomsToDo = privateRooms
+    } else if (targetRoomName === 'public') {
+      roomsToDo = publicRooms
+    } else if (targetRoomName === 'all') {
+      roomsToDo = oneToOnes.concat(privateRooms).concat(publicRooms)
+    } else {
+      targetRoom = targetRoomName.startsWith('@') ? usernameIndex[targetRoomName] : roomIndex[targetRoomName]
+      if (targetRoom) {
+        roomsToDo = [ targetRoom ]
+      }
+    }
+  }
+
+  if (roomsToDo.lebgth === 0) {
+    console.log(`Room "${targetRoomName}" not found!`)
+    process.exit(10)
+  }
+  console.log('Rooms to do: ' + roomsToDo.length)
+  const config = await loadConfig()
+  var count = 0
+  for (let targetRoom of roomsToDo) {
     try {
-      await doRoom(targetRoom)
+      await doRoom(targetRoom, config)
     } catch (err) {
       console.log(`Error processing room ${targetRoom.name}:` + err)
       console.log(` stack` + err.stack)
       process.exit(1)
     }
-    if (command !== 'stream') {
-      console.log('Done, exiting. ')
-      process.exit(0)
-    }
-  } else {
-    console.log('## Cant find target room ' + targetRoomName)
+    count += 1
+    if (count %10 === 0) await delayMs(10000) //ms
+  }
+  if (command !== 'stream') {
+    console.log('Done, exiting. ')
+    process.exit(0)
   }
 
-  await saveEverythingBack()
-
-/*
-  var repos = await user.repos()
-  console.log('repos ' + repos.length)
-
-  var orgs = await user.orgs()
-  console.log('orgs ' + orgs.length)
-*/
+  // await saveEverythingBack()
   console.log('ENDS')
 }
 
 var toBePut = []
+const opts = ['individualChatBaseURI', 'privateChatBaseURI', 'publicChatBaseURI']
 go()
 
 // ends

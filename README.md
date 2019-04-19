@@ -48,14 +48,19 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
   1:1 chats in this program (only) are named  using an '@' sign followed by the gitter name of the person
   you are chatting with.
   
-  ## Places to store the 
+  ## Places to store the chat 
   
   It is imprtant to make sure that creating a copy of 
   chat data in a solid pod does not guve anyone access to is 
   who would not have access to it on gitter.   Particularly, don't make any chat 
   data public unless it was a public chat on gitter.
   
-  To make this easier, `gitters-solid` uses three different solid folder for each type of chat.
+  To make this easier, `gitter-solid` uses three different solid folder for each type of chat.
+  These locations are stored in your pod, in a gitter prefernces file. If
+  you have not defined them already, gitter-solid will prompt you for them.
+  Give the whole URI.
+  
+  
   
   
   

@@ -268,6 +268,10 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
   // console.log('     person id: ' + fromUser.id)
   // console.log('     person solid: ' + person)
+  if (peopleDone[person.uri]) {
+    console.log('    person already saved ' + fromUser.username)
+    return person
+  }
   var doc = person.doc()
   if (toBePut[doc.uri]) { // already have stuff to save -> no need to load
     // console.log(' (already started to person file) ' + doc)
@@ -280,14 +284,17 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
       if (err.response && err.response.status && err.response.status === 404) {
         console.log('No person file yet, creating ' + person)
         await saveUserData(fromUser, person) // Patch the file into existence
+        peopleDone[person.uri] = true
         return person
       } else {
         console.log(' #### Error reading person file ' + err)
         console.log(' #### Error reading person file   ' + JSON.stringify(err))
         console.log('        err.response   ' + err.response)
         console.log('        err.response.status   ' + err.response.status)
+        process.exit(8)
       }
     }
+    peopleDone[person.uri] = true
   }
   return person
 }
@@ -793,6 +800,7 @@ async function go () {
 }
 
 var toBePut = []
+var peopleDone = {}
 const opts = ['individualChatBaseURI', 'privateChatBaseURI', 'publicChatBaseURI']
 go()
 

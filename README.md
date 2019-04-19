@@ -37,7 +37,7 @@ you can use gitter-solid repeatedly.
 
 In gitter, the concept of a room includes public rooms, private rooms, and private 1-1 conversations, some call *direct messaging*.
 
-| `node gitter-solid.js list` | List your gitter rooms |
-| `node gitter-solid.js list public` | List your public rooms |
-| `node gitter-solid.js list private` | List your private rooms |
-| `node gitter-solid.js list direct` | List your direct messaging 1:1 chats |
+ | `node gitter-solid.js list` | List your gitter rooms |
+ | `node gitter-solid.js list public` | List your public rooms |
+ | `node gitter-solid.js list private` | List your private rooms |
+ | `node gitter-solid.js list direct` | List your direct messaging 1:1 chats |

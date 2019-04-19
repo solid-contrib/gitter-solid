@@ -13,7 +13,8 @@ analysis tools on top of your gitter chat data?  Maybe you should be using this 
 ### Solid access
 
 You will need to give your script access to solid account which will have write access
-to the pod where you will be storing the solid chat.
+to the pod where you will be storing the solid chat.   This is done in any of the ways 
+`solid-auth-cli` can puck up credentials, such as a file in yor home directory.
 
 ### Gitter access
 
@@ -37,7 +38,27 @@ you can use gitter-solid repeatedly.
 
 In gitter, the concept of a room includes public rooms, private rooms, and private 1-1 conversations, some call *direct messaging*.
 
- | `node gitter-solid.js list` | List your gitter rooms |
- | `node gitter-solid.js list public` | List your public rooms |
- | `node gitter-solid.js list private` | List your private rooms |
- | `node gitter-solid.js list direct` | List your direct messaging 1:1 chats |
+  syntax | effect
+  ----------------------------|-----------------------
+  `node gitter-solid.js list` | List your gitter rooms 
+  `node gitter-solid.js list public` | List your public rooms 
+  `node gitter-solid.js list private` | List your private rooms 
+  `node gitter-solid.js list direct` | List your direct messaging 1:1 chats 
+  
+  1:1 chats in this program (only) are named  using an '@' sign followed by the gitter name of the person
+  you are chatting with.
+  
+  ## Places to store the 
+  
+  It is imprtant to make sure that creating a copy of 
+  chat data in a solid pod does not guve anyone access to is 
+  who would not have access to it on gitter.   Particularly, don't make any chat 
+  data public unless it was a public chat on gitter.
+  
+  To make this easier, `gitters-solid` uses three different solid folder for each type of chat.
+  
+  
+  
+  
+  
+  

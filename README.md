@@ -39,11 +39,12 @@ you can use gitter-solid repeatedly.
 In gitter, the concept of a room includes public rooms, private rooms, and private 1-1 conversations, some call *direct messaging*.
 
   syntax | effect
-  ----------------------------|-----------------------
+  -------|-----------------------
   `node gitter-solid.js list` | List your gitter rooms 
   `node gitter-solid.js list public` | List your public rooms 
   `node gitter-solid.js list private` | List your private rooms 
   `node gitter-solid.js list direct` | List your direct messaging 1:1 chats 
+  
   
   1:1 chats in this program (only) are named  using an '@' sign followed by the gitter name of the person
   you are chatting with.
@@ -61,8 +62,55 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
   Give the whole URI.
   
   
-  
-  
+ ## Syntax
+ 
+ The syntax of a comand line is 
+ 
+   `node gitter-solid.js  ` *command*  *room*
+   
+   
+   Wher room is either a single room or set of rooms
+
+   room | means
+   ----------|-----------------------
+   `solid/chat`  |  A single gitter room
+   `@joeBloggs`  |  Your direct message chat room with gitter user joeBloggs
+    `public`  |  All your public rooms 
+    `private`  |  All your your private rooms 
+    `direct`  |  All your direct messaging 1:1 chats 
+    `all`  |  All of your rooms (public or private) and chats
+   
+   
+   and where *command* is one of the following.
+ 
+ ### init command
+ 
+ This creates an empty solid chat channel correspondiing to the given room or rooms. No messages are transferred.
+ 
+ ### create command
+ 
+ This creates an new, as init does, then does catchup to local recent messages, and then and *acrhive* to  go back into the gitter room aarchive copying it into the solid archibe, going backward through time. Check the logs that nothing went wrong.
+ This should bring a new solid chat channel into creation and bring it up to date.
+
+ ### archive command
+
+Go to the earliest message in the current soldd chat channel, and go back through gitter history to attempt 
+to bring it all over into solid.
+
+ ### catchup command
+ 
+ Starting with hte most recent messages, pull in recent gitter messages, and tranfer them to solid, going backwards in time, until 
+ a message is found which has already been trasnfereed, then assume  solid is then up to date.
+ 
+ ### stream command
+ 
+ Do  a *catchup* command as above them, listen to for any new messages (Events) on the gitter room. When they arrive, add new messages to the solid, or delete ior modify existing messages accoriding to the gitterr event.  This command causes th eprogram to hang in the command line shell without returning.   Streemin more than one room at a time has not been tested.
+ 
+ ## Conclusion
+ 
+ Bugs report [on githiub](https://github.com/solid/gitter-solid/issues/)
+ 
+ 
   
   
   

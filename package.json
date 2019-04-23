@@ -15,6 +15,7 @@
   "homepage": "http://github.com/solid/solid-gitter",
   "bugs": "http://github.com/solid/solid-gitter/issues",
   "dependencies": {
+    "debug": ">=2.6.9",
     "node-gitter": "^2.1.0",
     "rdflib": ">=0.20.0",
     "solid-namespace": "^0.2.0"

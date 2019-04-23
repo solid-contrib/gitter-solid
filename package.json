@@ -1,6 +1,6 @@
 {
-  "name": "solid-gitter",
-  "description": "Linked Data command line utility",
+  "name": "gitter-solid",
+  "description": "command line utility to move giiter chat to solid chat",
   "version": "1.0.0",
   "author": {
     "name": "Tim Berners-Lee",
@@ -10,18 +10,18 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solid/solid-gitter"
+    "url": "https://github.com/solid/gitter-solid"
   },
-  "homepage": "http://github.com/solid/solid-gitter",
-  "bugs": "http://github.com/solid/solid-gitter/issues",
+  "homepage": "http://github.com/solid/gitter-solid",
+  "bugs": "http://github.com/solid/gitter-solid/issues",
   "dependencies": {
     "debug": ">=2.6.9",
     "node-gitter": "^2.1.0",
-    "rdflib": ">=0.20.0",
+    "rdflib": "^0.20.1",
     "solid-namespace": "^0.2.0"
   },
   "bin": {
-    "solid-gitter": "./bin/solid-gitter"
+    "gitter-solid": "./bin/gitter-solid"
   },
   "devDependencies": {
     "fs-extra": "^4.0.2",

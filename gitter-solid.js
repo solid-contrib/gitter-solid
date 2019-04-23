@@ -190,7 +190,6 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
     // console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
     var resp = await folderFetcher.load(parent, clone(forcingOptions)) // Force fetch as will have changed
-    // await delayMs(3000) // @@@@@@@ async prob??
 
     var kids = folderStore.each(parent, ns.ldp('contains'))
     kids = kids.filter(suitable)
@@ -445,7 +444,7 @@ async function doRoom (room, config) {
     newMessages = 0
     oldMessages = 0
     gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
-    var messages = await gitterRoom.chatMessages() // @@@@ ?
+    var messages = await gitterRoom.chatMessages()
     console.log(' messages ' + messages.length)
     for (let gitterMessage of messages) {
       await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
@@ -703,7 +702,16 @@ async function go () {
     roomIndex[room.name] = room
     if (room.oneToOne) {
       oneToOnes.push(room)
-      usernameIndex['@' + room.user.username] = room
+      console.log('  @@@ 704 ' + room.user.username)
+      let foo = '@' + room.user.username
+      console.log('  @@ 707 foo ' + foo)
+      usernameIndex[foo] = room
+      console.log(' @@@ 706a ' + usernameIndex[foo])
+      console.log(' @@@ 706aa ' + JSON.stringify(usernameIndex[foo]))
+      console.log(' @@@ 706b ' + usernameIndex['@' + room.user.username])
+      console.log(' @@@ 707 ' + usernameIndex['@dieu'])
+      console.log('   @@@ 708 ' +( foo === '@' + room.user.username))
+      console.log(' @@ 708 ' + JSON.stringify(usernameIndex))
     } else {
       if (room.public) {
         publicRooms.push(room)
@@ -716,7 +724,7 @@ async function go () {
     }
   }
   if (command === 'list') {
-    console.log('List of private chats: one-one rooms:')
+    console.log('List of direct one-one chats:')
     for (let r of oneToOnes) {
       var username = r.user.username
       if (!username) throw new Error('one-one must have user username!')
@@ -750,11 +758,13 @@ async function go () {
         console.log(JSON.stringify(r))
       }
     }
-    process.exit(0)
+    process.exit(0) // No more processing for list
   }
 
   var targetRoom
   var roomsToDo = []
+  console.log('targetRoomName 1 ' + targetRoomName)
+
   if (targetRoomName) {
     if (targetRoomName === 'direct') {
       roomsToDo = oneToOnes
@@ -765,15 +775,19 @@ async function go () {
     } else if (targetRoomName === 'all') {
       roomsToDo = oneToOnes.concat(privateRooms).concat(publicRooms)
     } else {
+      console.log(`targetRoomName 2 "${targetRoomName}"`)
+      console.log('@@@@@@ '  + usernameIndex[targetRoomName])
       targetRoom = targetRoomName.startsWith('@') ? usernameIndex[targetRoomName] : roomIndex[targetRoomName]
       if (targetRoom) {
         roomsToDo = [ targetRoom ]
+        console.log('Single room selected: ' + targetRoom.name)
       }
     }
   }
 
-  if (roomsToDo.lebgth === 0) {
+  if (roomsToDo.length === 0) {
     console.log(`Room "${targetRoomName}" not found!`)
+    console.log(JSON.stringify(usernameIndex))
     process.exit(10)
   }
   console.log('Rooms to do: ' + roomsToDo.length)
@@ -797,7 +811,7 @@ async function go () {
 
   // await saveEverythingBack()
   console.log('ENDS')
-}
+} // go
 
 var toBePut = []
 var peopleDone = {}

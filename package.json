@@ -1,7 +1,7 @@
 {
   "name": "gitter-solid",
   "description": "command line utility to move giiter chat to solid chat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Tim Berners-Lee",
     "email": "timbl@w3.org"

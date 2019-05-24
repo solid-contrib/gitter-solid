@@ -1,11 +1,20 @@
 // rate limits - https://api.slack.com/docs/rate-limits
+import Slack from "slack"
+import dotenv from 'dotenv'
+
+dotenv.config()
+
+const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
+
 const RATE_LIMIT_TIER_1_MS = 60 * 1000 / 1
 const RATE_LIMIT_TIER_2_MS = 60 * 1000 / 20
 const RATE_LIMIT_TIER_3_MS = 60 * 1000 / 50
 const RATE_LIMIT_TIER_4_MS = 60 * 1000 / 100
 
-export async function getChannelByName (bot, channelName) {
-  const channels = await getChannels(bot)
+const bot = new Slack({ token: BOT_TOKEN })
+
+export async function getChannelByName (channelName) {
+  const channels = await getChannels()
   const channel = channels.find(channel => channel.name === channelName)
   if (!channel) {
     throw new Error(`No channel ${channelName} found`)
@@ -13,8 +22,11 @@ export async function getChannelByName (bot, channelName) {
   return channel
 }
 
-export async function getAllMessages (bot, channelName, userToken) {
-  const channel = await getChannelByName(bot, channelName)
+export async function getChannelDetails (channel) {
+  return await bot.conversations.info({ channel: channel.id })
+}
+
+export async function getAllMessages (channel, userToken) {
   let messages = []
   let response
   do {
@@ -32,7 +44,7 @@ export async function getAllMessages (bot, channelName, userToken) {
   return messages
 }
 
-export async function getAllUsers (bot) {
+export async function getAllUsers () {
   let users = []
   let response
   do {
@@ -46,12 +58,12 @@ export async function getAllUsers (bot) {
   return users
 }
 
-export async function getChannels (bot) {
+export async function getChannels () {
   const response = await bot.conversations.list()
   return response.channels
 }
 
-export async function testApi (bot) {
+export async function testApi () {
   return await bot.api.test()
 }
 

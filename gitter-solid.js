@@ -3,9 +3,11 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
+require('dotenv').config()
+
 const command = process.argv[2]
 const targetRoomName = process.argv[3] // solid/chat
-// const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
+const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
 /*
 if (command !== 'list' && !archiveBaseURI) {
   console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
@@ -24,6 +26,8 @@ if (!ns.wf) {
 
 var GITTER_TOKEN = process.env.GITTER_TOKEN
 if (!GITTER_TOKEN) {
+  console.error('NO GITTER TOKEN SET')
+  process.exit(1)
   // await load()
 }
 // console.log('GITTER_TOKEN ' + GITTER_TOKEN)
@@ -621,7 +625,11 @@ async function doRoom (room, config) {
 
 async function loadConfig () {
   console.log('Log into solid')
-  var session = await auth.login()
+  var session = await auth.login({
+    idp: process.env.SOLID_IDP,
+    username: process.env.SOLID_USERNAME,
+    password: process.env.SOLID_PASSWORD
+  })
   var webId = session.webId
   const me = $rdf.sym(webId)
   console.log('Logged in to Solid as ' + me)

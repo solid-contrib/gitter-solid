@@ -18,6 +18,7 @@
     "debug": ">=2.6.9",
     "node-gitter": "^2.1.0",
     "rdflib": "^0.20.1",
+    "slack": "^11.0.2",
     "solid-namespace": "^0.2.0"
   },
   "bin": {

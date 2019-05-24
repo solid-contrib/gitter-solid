@@ -7,35 +7,33 @@
 // and https://www.npmjs.com/package/slack
 
 const command = process.argv[2]
-const targetRoomName = process.argv[3] // solid/chat
+const targetRoomName = process.argv[3] // general
 const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
 
-if (!archiveBaseURI) {
-  console.error('syntax:  node slack-solid.js  <command> <chatroom>  <solid archive root>')
+if (!command) {
+  console.error('syntax: node slack-solid.js <command> <target> <solid archive root>')
   process.exit(1)
 }
 
 const token = process.env.SLACK_TOKEN
 const Slack = require('slack')
-const bot = new Slack({token})
+const bot = new Slack({ token })
 
 const $rdf = require('rdflib')
 const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 
+switch (command) {
+  case 'list':
+    require('./slack-utils/list')(bot, token)
+    break
+  default:
+    console.log('Please use one of the supported commands: list')
+}
+
 if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
-
-bot.api.test({hyper:'card'}).then(console.log)
-
-// see https://www.npmjs.com/package/node-slack
-
-if (!SLACK_TOKEN) {
-  // await load()
-}
-// console.log('SLACK_TOKEN ' + SLACK_TOKEN)
-const slack = new Slack(SLACK_TOKEN)
 
 /* Solid Authentication
 */
@@ -67,7 +65,7 @@ const peopleBaseURI = archiveBaseURI + 'Person/'
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
 const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
+const fetcher = $rdf.fetcher(store, { fetch: auth.fetch, timeout: 900000 })
 const updater = new $rdf.UpdateManager(store)
 
 function delay (ms) {
@@ -574,6 +572,6 @@ async function go () {
 }
 
 var toBePut = []
-go()
+// go()
 
 // ends

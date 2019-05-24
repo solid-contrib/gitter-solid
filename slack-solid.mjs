@@ -5,37 +5,54 @@
 // and https://api.slack.com/methods/conversations.list
 
 // and https://www.npmjs.com/package/slack
+// and https://www.npmjs.com/package/solid-auth-cli
 
-const command = process.argv[2]
-const targetRoomName = process.argv[3] // solid/chat
-const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
+import yargs from 'yargs'
+import dotenv from 'dotenv'
+import $rdf from 'rdflib'
+import solidNamespace from 'solid-namespace'
+import auth from 'solid-auth-cli'
 
-if (!archiveBaseURI) {
-  console.error('syntax:  node slack-solid.js  <command> <chatroom>  <solid archive root>')
-  process.exit(1)
-}
+dotenv.config()
 
-const token = process.env.SLACK_TOKEN
-const Slack = require('slack')
-const bot = new Slack({token})
+import listChannels from './src/command-list.mjs'
+import archiveChannel from './src/command-archive.mjs'
+import showDetailsForChannel from './src/command-details.mjs'
+import diagnoseApi from './src/command-test'
+import initializeChannel from './src/command-init'
 
-const $rdf = require('rdflib')
-const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
+import { chatUriFromSlackName } from './src/class-archive'
 
-if (!ns.wf) {
-  ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
+;(async () => {
+  yargs
+    .command('archive <channel>', 'Archive conversations in channel to pod', function () {}, async function (argv) {
+      await archiveChannel(argv.channel)
+      endProgram()
+    })
+    .command('details <channel>', 'Show details for channel', function () {}, async function (argv) {
+      await showDetailsForChannel(argv.channel)
+      endProgram()
+    })
+    .command('init <channel>', 'Initiate chat for channel', function () {}, async function (argv) {
+      await initializeChannel(argv.channel)
+      endProgram()
+    })
+    .command('list', 'List channels available for actions', function () {},async function () {
+      await listChannels()
+      endProgram()
+    })
+    .command('test', 'Test that connection to Slack API works', function () {}, async function () {
+      await diagnoseApi()
+      endProgram()
+    })
+    .parse()
+})()
+
+function endProgram() {
+  process.exit(0)
 }
 
-bot.api.test({hyper:'card'}).then(console.log)
-
-// see https://www.npmjs.com/package/node-slack
-
-if (!SLACK_TOKEN) {
-  // await load()
-}
-// console.log('SLACK_TOKEN ' + SLACK_TOKEN)
-const slack = new Slack(SLACK_TOKEN)
 
 /* Solid Authentication
 */
@@ -60,14 +77,14 @@ function clone (options) {
 }
 
 // const archiveBaseURI = 'https://timbl.com/timbl/Public/Archive/'
-const peopleBaseURI = archiveBaseURI + 'Person/'
+// const peopleBaseURI = archiveBaseURI + 'Person/'
+const peopleBaseURI = 'STANDIN'
 
 /// ///////////////////////////// Solid Bits
 
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
-const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
+const fetcher = $rdf.fetcher(store, { fetch: auth.fetch, timeout: 900000 })
 const updater = new $rdf.UpdateManager(store)
 
 function delay (ms) {
@@ -80,18 +97,6 @@ function chatDocumentFromDate (chatChannel, date) {
   path = chatChannel.dir().uri + path + '/chat.ttl'
   return $rdf.sym(path)
 }
-
-
-/** Decide URI of solid chat vchanel from name of slack room
- *
- * @param slackName {String} - like 'solid/chat'
-*/
-function chatChannelFromSlackName (slackName) {
-  if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
-  let segment = slackName.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
-  return $rdf.sym(archiveBaseURI + segment + '/index.ttl#this')
-}
-
 
 async function putResource (doc) {
   delete fetcher.requested[doc.uri] // invalidate read cache @@ should be done by fetcher in future
@@ -207,7 +212,7 @@ async function authorFromSlack (fromUser) {
   }
   return person
 }
-/**  Convert slack message to Solid
+/**  Convert src message to Solid
  *
 */
 // See https://developer.slack.im/docs/messages-resource
@@ -326,7 +331,7 @@ async function doRoom (room) {
   console.log(`Doing room ${room.id}:  ${room.name}`)
 
   var slackRoom = await slack.rooms.find(room.id)
-  var solidChannel = chatChannelFromSlackName(room.name)
+  var solidChannel = chatUriFromSlackName(room.name, archiveBaseURI)
   console.log('    solid channel ' + solidChannel)
 
   // var users = await slackRoom.users()
@@ -370,14 +375,14 @@ async function doRoom (room) {
   }
 
   async function initialize () {
-    const solidChannel = chatChannelFromSlackName(room.name)
+    const solidChannel = chatUriFromSlackName(room.name)
     console.log('    solid channel ' + solidChannel)
     // Make the main chat channel file
     var newChatDoc = solidChannel.doc()
     let already = await loadIfExists(newChatDoc)
     if (!already) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
-      store.add(solidChannel, ns.dc('title'), room.name + ' slack chat archive', newChatDoc)
+      store.add(solidChannel, ns.dc('title'), room.name + ' src chat archive', newChatDoc)
       await putResource(newChatDoc)
       console.log('New chat channel created. ' + solidChannel)
     } else {
@@ -402,9 +407,9 @@ async function doRoom (room) {
 
   /*  Like:  {"operation":"create","model":{
   "id":"5c951d6ba21ce51a20a3b3b3",
-  "text":"@timbl testing the slack-solid importer",
+  "text":"@timbl testing the src-solid importer",
   "status":true,
-  "html":"<span data-link-type=\"mention\" data-screen-name=\"timbl\" class=\"mention\">@timbl</span> testing the slack-solid importer",
+  "html":"<span data-link-type=\"mention\" data-screen-name=\"timbl\" class=\"mention\">@timbl</span> testing the src-solid importer",
   "sent":"2019-03-22T17:37:47.079Z",
   "fromUser":{
       "id":"54d26c98db8155e6700f7312",
@@ -454,7 +459,7 @@ async function doRoom (room) {
       } else if (slackEvent.operation === 'patch') {
         console.log('Ignoring patch')
       } else {
-        console.warn('Unhandled slack event operation: ' + slackEvent.operation)
+        console.warn('Unhandled src event operation: ' + slackEvent.operation)
       }
     })
     console.log('streaming ...')
@@ -523,12 +528,12 @@ async function go () {
   console.log('Log into solid')
   var session = await auth.login()
 
-  console.log('Logging into slack ...')
+  console.log('Logging into src ...')
   var user
   try {
     user = await slack.currentUser()
   } catch (err) {
-    console.log('Crashed logging into slack: ' + err)
+    console.log('Crashed logging into src: ' + err)
     process.exit(3)
   }
   console.log('You are logged in as:', user.username)
@@ -574,6 +579,6 @@ async function go () {
 }
 
 var toBePut = []
-go()
+// go()
 
 // ends

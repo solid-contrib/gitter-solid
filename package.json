@@ -16,9 +16,12 @@
   "bugs": "http://github.com/solid/gitter-solid/issues",
   "dependencies": {
     "debug": ">=2.6.9",
+    "dotenv": "^8.0.0",
     "node-gitter": "^2.1.0",
     "rdflib": "^0.20.1",
-    "solid-namespace": "^0.2.0"
+    "slack": "^11.0.2",
+    "solid-namespace": "^0.2.0",
+    "yargs": "^13.2.4"
   },
   "bin": {
     "gitter-solid": "./bin/gitter-solid"
@@ -28,5 +31,8 @@
     "mocha": "^4.0.1",
     "mock-http-server": "^0.2.0"
   },
-  "main": "index.js"
+  "main": "index.js",
+  "scripts": {
+    "slack": "node --experimental-modules slack-solid.mjs"
+  }
 }

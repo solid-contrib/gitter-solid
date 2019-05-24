@@ -59,3 +59,12 @@ typings/
 
 # next.js build output
 .next
+
+# OSX
+.DS_STORE
+
+# Jetbrains IDEs
+.idea
+
+# Project specific files
+config.json

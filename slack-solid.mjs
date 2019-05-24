@@ -19,19 +19,23 @@ import listChannels from './src/command-list.mjs'
 import archiveChannel from './src/command-archive.mjs'
 import showDetailsForChannel from './src/command-details.mjs'
 import diagnoseApi from './src/command-test'
-import { chatUriFromSlackName, Archive } from './src/class-archive'
+import initializeChannel from './src/command-init'
 
 const ns = solidNamespace($rdf)
+import { chatUriFromSlackName } from './src/class-archive'
 
 ;(async () => {
   yargs
     .command('archive <channel>', 'Archive conversations in channel to pod', function () {}, async function (argv) {
-      const archive = await Archive.load()
-      await archiveChannel(archive, argv.channel)
+      await archiveChannel(argv.channel)
       endProgram()
     })
     .command('details <channel>', 'Show details for channel', function () {}, async function (argv) {
       await showDetailsForChannel(argv.channel)
+      endProgram()
+    })
+    .command('init <channel>', 'Initiate chat for channel', function () {}, async function (argv) {
+      await initializeChannel(argv.channel)
       endProgram()
     })
     .command('list', 'List channels available for actions', function () {},async function () {

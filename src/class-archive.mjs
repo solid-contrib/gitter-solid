@@ -1,21 +1,38 @@
 import $rdf from 'rdflib'
 import solidNamespace from 'solid-namespace'
-import { login, setupStore } from './solid-utils'
+import { loadResourceIfExists, login, setupStore } from './solid-utils'
 import { confirm, question } from './input-utils'
 
 const NS = solidNamespace($rdf)
 
 export class Archive {
-  constructor (session, store) {
+  constructor (session, store, config) {
     this._session = session
     this._store = store
+    this._config = config
+  }
+
+  getChatUri(channelName) {
+    const archiveBaseURI = this._config.slackArchiveURI
+    if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
+    return $rdf.sym(archiveBaseURI + channelName + '/index.ttl#this')
+  }
+
+  async initiateChannel(channelName) {
+    const chatUri = this.getChatUri(channelName)
+    let chatDoc = chatUri.doc()
+    let exists = await loadResourceIfExists(chatDoc)
+    if (exists) {
+      return console.log(`Channel ${channel} already initiated`)
+    }
+    console.log(chatUri)
   }
 
   static async load (store = $rdf.graph()) {
     const session = await login()
     setupStore(store)
-    await loadConfig(store, $rdf.sym(session.webId))
-    return new Archive(session, store)
+    const config = await loadConfig(store, $rdf.sym(session.webId))
+    return new Archive(session, store, config)
   }
 }
 

@@ -8,6 +8,24 @@ const SOLID_IDP = process.env.SOLID_IDP
 const SOLID_USERNAME = process.env.SOLID_USERNAME
 const SOLID_PASSWORD = process.env.SOLID_PASSWORD
 
+export async function loadResourceIfExists (doc, store = setupStore()) {
+  try {
+    await store.fetcher.load(doc)
+    return true
+  } catch (err) {
+    if (err.response && err.response.status && err.response.status === 404) {
+      // console.log('    No chat file yet, creating later ' + doc)
+      return false
+    } else {
+      console.log(' #### Error reading  file ' + err)
+      console.log('            error object  ' + JSON.stringify(err))
+      console.log('        err.response   ' + err.response)
+      console.log('        err.response.status   ' + err.response.status)
+      process.exit(4)
+    }
+  }
+}
+
 export async function login () {
   const session = await auth.login({
     idp: SOLID_IDP,

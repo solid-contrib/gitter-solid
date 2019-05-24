@@ -16,6 +16,7 @@
   "bugs": "http://github.com/solid/gitter-solid/issues",
   "dependencies": {
     "debug": ">=2.6.9",
+    "dotenv": "^8.0.0",
     "node-gitter": "^2.1.0",
     "rdflib": "^0.20.1",
     "slack": "^11.0.2",

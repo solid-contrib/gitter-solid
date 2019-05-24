@@ -1,6 +1,6 @@
-import { getChannelByName } from './slack-api'
+import { getAllMessages } from './slack-api'
 
-export default async function archiveChannel (bot, channelName, pod) {
-  const channel = await getChannelByName(bot, channelName)
-  console.log(channel, pod)
+export default async function archiveChannel (bot, channelName, userToken) {
+  const messages = await getAllMessages(bot, channelName, userToken)
+  console.log(messages.length)
 }

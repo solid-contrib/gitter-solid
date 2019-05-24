@@ -6,24 +6,33 @@
 
 // and https://www.npmjs.com/package/slack
 
-import showDetailsForChannel from './slack-utils/command-details.mjs'
-import listChannels from './slack-utils/command-list.mjs'
-import archiveChannel from './slack-utils/command-archive.mjs'
 import Slack from 'slack'
 import yargs from 'yargs'
+import dotenv from 'dotenv'
 
-const token = process.env.SLACK_TOKEN
-const bot = new Slack({ token })
+import listChannels from './slack-utils/command-list.mjs'
+import archiveChannel from './slack-utils/command-archive.mjs'
+import showDetailsForChannel from './slack-utils/command-details.mjs'
+import diagnoseApi from './slack-utils/command-test'
+
+dotenv.config()
+
+const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
+const bot = new Slack({ token: BOT_TOKEN })
+const USER_TOKEN = process.env.SLACK_USER_TOKEN
 
 yargs
-  .command('archive <channel> <pod>', 'Archive conversations in channel to pod', function () {}, function (argv) {
-    archiveChannel(bot, argv.channel, argv.pod)
+  .command('archive <channel>', 'Archive conversations in channel to pod', function () {}, function (argv) {
+    archiveChannel(bot, argv.channel, USER_TOKEN)
   })
   .command('details <channel>', 'Show details for channel', function () {}, function (argv) {
     showDetailsForChannel(bot, argv.channel)
   })
   .command('list', 'List channels available for actions', function () {},function () {
     listChannels(bot)
+  })
+  .command('test', 'Test that connection to Slack API works', function () {}, function () {
+    diagnoseApi(bot)
   })
   .parse()
 
@@ -36,21 +45,21 @@ yargs
 // const solidNamespace = require('solid-namespace')
 // const ns = solidNamespace($rdf)
 
-function go (command, targetRoomName, archiveBaseURI) {
-  switch (command) {
-    case 'archive':
-      if (!targetRoomName) return console.error('Requires channel name')
-      if (!archiveBaseURI) return console.error('Requires pod to save to')
-      return archiveChannel(bot, targetRoomName)
-    case 'details':
-      if (!targetRoomName) return console.error('Requires channel name')
-      return showDetailsForChannel(bot, targetRoomName)
-    case 'list':
-      return listChannels(bot)
-    default:
-      return console.log('Please use one of the supported commands: list')
-  }
-}
+// function go (command, targetRoomName, archiveBaseURI) {
+//   switch (command) {
+//     case 'archive':
+//       if (!targetRoomName) return console.error('Requires channel name')
+//       if (!archiveBaseURI) return console.error('Requires pod to save to')
+//       return archiveChannel(bot, targetRoomName)
+//     case 'details':
+//       if (!targetRoomName) return console.error('Requires channel name')
+//       return showDetailsForChannel(bot, targetRoomName)
+//     case 'list':
+//       return listChannels(bot)
+//     default:
+//       return console.log('Please use one of the supported commands: list')
+//   }
+// }
 
 // if (!ns.wf) {
 //   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary

@@ -19,7 +19,8 @@
     "node-gitter": "^2.1.0",
     "rdflib": "^0.20.1",
     "slack": "^11.0.2",
-    "solid-namespace": "^0.2.0"
+    "solid-namespace": "^0.2.0",
+    "yargs": "^13.2.4"
   },
   "bin": {
     "gitter-solid": "./bin/gitter-solid"
@@ -29,5 +30,8 @@
     "mocha": "^4.0.1",
     "mock-http-server": "^0.2.0"
   },
-  "main": "index.js"
+  "main": "index.js",
+  "scripts": {
+    "slack": "node --experimental-modules slack-solid.mjs"
+  }
 }

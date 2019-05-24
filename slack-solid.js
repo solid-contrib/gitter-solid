@@ -24,8 +24,12 @@ const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 
 switch (command) {
+  case 'details':
+    if (!targetRoomName) return console.error('Requires channel name')
+    require('./slack-utils/details')(bot, targetRoomName)
+    break
   case 'list':
-    require('./slack-utils/list')(bot, token)
+    require('./slack-utils/list')(bot)
     break
   default:
     console.log('Please use one of the supported commands: list')

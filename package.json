@@ -1,7 +1,7 @@
 {
-  "name": "solid-gitter",
-  "description": "Linked Data command line utility",
-  "version": "1.0.0",
+  "name": "gitter-solid",
+  "description": "command line utility to move giiter chat to solid chat",
+  "version": "1.0.1",
   "author": {
     "name": "Tim Berners-Lee",
     "email": "timbl@w3.org"
@@ -10,22 +10,29 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/solid/solid-gitter"
+    "url": "https://github.com/solid/gitter-solid"
   },
-  "homepage": "http://github.com/solid/solid-gitter",
-  "bugs": "http://github.com/solid/solid-gitter/issues",
+  "homepage": "http://github.com/solid/gitter-solid",
+  "bugs": "http://github.com/solid/gitter-solid/issues",
   "dependencies": {
+    "debug": ">=2.6.9",
+    "dotenv": "^8.0.0",
     "node-gitter": "^2.1.0",
-    "rdflib": ">=0.20.0",
-    "solid-namespace": "^0.2.0"
+    "rdflib": "^0.20.1",
+    "slack": "^11.0.2",
+    "solid-namespace": "^0.2.0",
+    "yargs": "^13.2.4"
   },
   "bin": {
-    "solid-gitter": "./bin/solid-gitter"
+    "gitter-solid": "./bin/gitter-solid"
   },
   "devDependencies": {
     "fs-extra": "^4.0.2",
     "mocha": "^4.0.1",
     "mock-http-server": "^0.2.0"
   },
-  "main": "index.js"
+  "main": "index.js",
+  "scripts": {
+    "slack": "node --experimental-modules slack-solid.mjs"
+  }
 }

@@ -3,9 +3,11 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
+require('dotenv').config()
+
 const command = process.argv[2]
 const targetRoomName = process.argv[3] // solid/chat
-// const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
+const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
 /*
 if (command !== 'list' && !archiveBaseURI) {
   console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
@@ -24,6 +26,8 @@ if (!ns.wf) {
 
 var GITTER_TOKEN = process.env.GITTER_TOKEN
 if (!GITTER_TOKEN) {
+  console.error('NO GITTER TOKEN SET')
+  process.exit(1)
   // await load()
 }
 // console.log('GITTER_TOKEN ' + GITTER_TOKEN)
@@ -181,7 +185,6 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
     // console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
     var resp = await folderFetcher.load(parent, clone(forcingOptions)) // Force fetch as will have changed
-    // await delayMs(3000) // @@@@@@@ async prob??
 
     var kids = folderStore.each(parent, ns.ldp('contains'))
     kids = kids.filter(suitable)
@@ -613,7 +616,11 @@ async function doRoom (room, config) {
 
 async function loadConfig () {
   console.log('Log into solid')
-  var session = await auth.login()
+  var session = await auth.login({
+    idp: process.env.SOLID_IDP,
+    username: process.env.SOLID_USERNAME,
+    password: process.env.SOLID_PASSWORD
+  })
   var webId = session.webId
   const me = $rdf.sym(webId)
   console.log('Logged in to Solid as ' + me)
@@ -710,7 +717,7 @@ async function go () {
     }
   }
   if (command === 'list') {
-    console.log('List of private chats: one-one rooms:')
+    console.log('List of direct one-one chats:')
     for (let r of oneToOnes) {
       var username = r.user.username
       if (!username) throw new Error('one-one must have user username!')
@@ -744,11 +751,13 @@ async function go () {
         console.log(JSON.stringify(r))
       }
     }
-    process.exit(0)
+    process.exit(0) // No more processing for list
   }
 
   var targetRoom
   var roomsToDo = []
+  console.log('targetRoomName 1 ' + targetRoomName)
+
   if (targetRoomName) {
     if (targetRoomName === 'direct') {
       roomsToDo = oneToOnes
@@ -759,15 +768,19 @@ async function go () {
     } else if (targetRoomName === 'all') {
       roomsToDo = oneToOnes.concat(privateRooms).concat(publicRooms)
     } else {
+      console.log(`targetRoomName 2 "${targetRoomName}"`)
+      console.log('@@@@@@ '  + usernameIndex[targetRoomName])
       targetRoom = targetRoomName.startsWith('@') ? usernameIndex[targetRoomName] : roomIndex[targetRoomName]
       if (targetRoom) {
         roomsToDo = [ targetRoom ]
+        console.log('Single room selected: ' + targetRoom.name)
       }
     }
   }
 
-  if (roomsToDo.lebgth === 0) {
+  if (roomsToDo.length === 0) {
     console.log(`Room "${targetRoomName}" not found!`)
+    console.log(JSON.stringify(usernameIndex))
     process.exit(10)
   }
   console.log('Rooms to do: ' + roomsToDo.length)
@@ -791,7 +804,7 @@ async function go () {
 
   // await saveEverythingBack()
   console.log('ENDS')
-}
+} // go
 
 var toBePut = []
 var peopleDone = {}

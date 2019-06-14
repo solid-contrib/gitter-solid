@@ -57,16 +57,6 @@ async function confirm (q) {
     console.log('  Please reply y or n')
   }
 }
-/* Solid Authentication
-*/
-/*
-const SOLID_TOKEN = process.env.SOLID_TOKEN
-console.log('SOLID_TOKEN ' + SOLID_TOKEN.length)
-if (!SOLID_TOKEN) {
-  console.log('NO SOLID TOKEN')
-  process.exit(2)
-}
-*/
 
 const normalOptions = {
 //   headers: {Authorization: 'Bearer ' + SOLID_TOKEN}
@@ -118,10 +108,11 @@ async function update (ddd, sts) {
   }
 }
 */
-// individualChatBaseURI', 'privateChatBaseURI', 'publicChatBaseURI
+// individualChatFolder', 'privateChatFolder', 'publicChatFolder
 function archiveBaseURIFromGitterRoom (room, config) {
-  return room.oneToOne ? config.individualChatBaseURI
-         : room.public ? config.publicChatBaseURI : config.privateChatBaseURI
+  const folder = room.oneToOne ? config.individualChatFolder
+         : room.public ? config.publicChatFolder : config.privateChatFolder
+  return folder.uri
 }
 
 /** Decide URI of solid chat vchanel from properties of gitter room
@@ -231,7 +222,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
 }
 
 async function saveEverythingBack () {
-  console.log('Saving all modified files:')
+  // console.log('Saving all modified files:')
   for (let uri in toBePut) {
     if (toBePut.hasOwnProperty(uri)) {
       console.log('Putting ' + uri)
@@ -239,7 +230,7 @@ async function saveEverythingBack () {
       delete fetcher.requested[uri] // invalidate read cache @@ should be done by fether in future
     }
   }
-  console.log('Saved all modified files.')
+  // console.log('Saved all modified files.')
   toBePut = []
 }
 
@@ -268,6 +259,10 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(fromUser.id) + '/index.ttl#this')
   // console.log('     person id: ' + fromUser.id)
   // console.log('     person solid: ' + person)
+  if (peopleDone[person.uri]) {
+    // console.log('    person already saved ' + fromUser.username)
+    return person
+  }
   var doc = person.doc()
   if (toBePut[doc.uri]) { // already have stuff to save -> no need to load
     // console.log(' (already started to person file) ' + doc)
@@ -280,14 +275,17 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
       if (err.response && err.response.status && err.response.status === 404) {
         console.log('No person file yet, creating ' + person)
         await saveUserData(fromUser, person) // Patch the file into existence
+        peopleDone[person.uri] = true
         return person
       } else {
         console.log(' #### Error reading person file ' + err)
         console.log(' #### Error reading person file   ' + JSON.stringify(err))
         console.log('        err.response   ' + err.response)
         console.log('        err.response.status   ' + err.response.status)
+        process.exit(8)
       }
     }
+    peopleDone[person.uri] = true
   }
   return person
 }
@@ -313,7 +311,7 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
     return // alraedy got it
   }
   newMessages += 1
-  console.log(`NOT got ${gitterMessage.sent} message ${message}`)
+  // console.log(`NOT got ${gitterMessage.sent} message ${message}`)
 
   var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
   store.add(chatChannel, ns.wf('message'), message, chatDocument)
@@ -326,7 +324,7 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
     store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
   }
   store.add(message, ns.foaf('maker'), author, chatDocument)
-  if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
+  // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
   toBePut[chatDocument.uri] = true
   return message
 }
@@ -439,7 +437,7 @@ async function doRoom (room, config) {
     oldMessages = 0
     gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     var messages = await gitterRoom.chatMessages() // @@@@ ?
-    console.log(' messages ' + messages.length)
+    if (messages.length !== 50) console.log('  Messages read: ' + messages.length)
     for (let gitterMessage of messages) {
       await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
     }
@@ -649,15 +647,17 @@ async function loadConfig () {
   console.log('Have gitter config ✅')
 
   for (var opt of opts) {
-    var x = kb.anyValue(me, ns.solid(opt))
+    var x = kb.any(me, ns.solid(opt))
     console.log(` Config option ${opt}: "${x}"`)
-    if (x) {
-      gitterConfig[opt] = x.trim()
+    if (x && x.uri) {
+      gitterConfig[opt] = x.uri
     } else {
       console.log('\nThis must a a full https: URI ending in a slash, which folder on your pod you want gitter chat stored.')
-      x = await question('Value for ' + opt + '?')
+      x = await question('URI for ' + opt + '?')
+      console.log('@@@@@ aaaaa :' + x)
       if (x.length > 0 && x.endsWith('/')) {
-        await kb.updater.update([], [$rdf.st(me, ns.solid(opt), x, config)])
+        console.log(`@@ saving config ${opt} =  ${x}`)
+        await kb.updater.update([], [$rdf.st(me, ns.solid(opt), $rdf.sym(x), config)])
         console.log(`saved config ${opt} =  ${x}`)
       } else {
         console.log('abort. exit.')
@@ -674,7 +674,7 @@ async function go () {
   var oneToOnes = []
   var privateRooms = []
   var publicRooms = []
-  var usernameIndex = {}
+  var userNameIndex = {}
   console.log('Target roomm name: ' + targetRoomName)
 
   console.log('Logging into gitter ...')
@@ -696,7 +696,8 @@ async function go () {
     roomIndex[room.name] = room
     if (room.oneToOne) {
       oneToOnes.push(room)
-      usernameIndex['@' + room.user.username] = room
+      // console.log('@@@@ remembering ' + '@' + room.user.username)
+      userNameIndex[ '@' + room.user.username] = room
     } else {
       if (room.public) {
         publicRooms.push(room)
@@ -793,7 +794,8 @@ async function go () {
 }
 
 var toBePut = []
-const opts = ['individualChatBaseURI', 'privateChatBaseURI', 'publicChatBaseURI']
+var peopleDone = {}
+const opts = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder']
 go()
 
 // ends

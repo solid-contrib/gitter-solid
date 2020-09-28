@@ -14,7 +14,9 @@ analysis tools on top of your gitter chat data?  Maybe you should be using this 
 
 You will need to give your script access to solid account which will have write access
 to the pod where you will be storing the solid chat.   This is done in any of the ways
-`solid-auth-cli` can puck up credentials, such as a file in yor home directory.
+[`solid-auth-cli`](https://github.com/jeff-zucker/solid-auth-cli) can pick up credentials,
+such as a file in your home directory, or
+specify `SOLID_IDP`, `SOLID_USERNAME` and `SOLID_PASSWORD` in environment variables.
 
 ### Gitter access
 
@@ -31,6 +33,7 @@ export GITTER_TOKEN=W4gfhEf6XO4+p1bfTEHy3ncEVDUTksI2pYMryWhO4ZbhQrq2229Bm
 node gitter-solid.js   list
 
 ```
+
 One you have set your shell session up with the gitter token,
 you can use gitter-solid repeatedly.
 

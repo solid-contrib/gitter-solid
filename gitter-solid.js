@@ -681,7 +681,7 @@ async function go () {
   var oneToOnes = []
   var privateRooms = []
   var publicRooms = []
-  var userNameIndex = {}
+  var usernameIndex = {}
   console.log('Target roomm name: ' + targetRoomName)
 
   console.log('Logging into gitter ...')
@@ -704,7 +704,7 @@ async function go () {
     if (room.oneToOne) {
       oneToOnes.push(room)
       // console.log('@@@@ remembering ' + '@' + room.user.username)
-      userNameIndex[ '@' + room.user.username] = room
+      usernameIndex[ '@' + room.user.username] = room
     } else {
       if (room.public) {
         publicRooms.push(room)

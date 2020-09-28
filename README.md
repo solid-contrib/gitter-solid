@@ -2,7 +2,7 @@
 A command line or batch processing tool to move data from [gitter](https://gitter.im)
 chat into a [solid](https://solid.inrupt.net/) pod.
 
-Do you have a projects which use gitter chats, but you would like to do do soli things
+Do you have a projects which use gitter chats, but you would like to do do solid things
 with them, like bookmark chat messages, and so on?
 Do you have a lot of your projects institutional memory in gitter chats, and worry about
 it gitter going away one day, or being offline?  Do you want to be able to use and build all kinds of search and
@@ -30,6 +30,7 @@ Then you can save it and pass it to this program as an environment variable.
 Syntax for example:
 ```
 export GITTER_TOKEN=W4gfhEf6XO4+p1bfTEHy3ncEVDUTksI2pYMryWhO4ZbhQrq2229Bm
+npm install
 node gitter-solid.js   list
 
 ```

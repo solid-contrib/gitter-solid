@@ -246,7 +246,7 @@ async function go () {
             } else {
               console.log('written file')
             }
-            // console.log(htmlText)
+            console.log(htmlText)
           })
         }
       }

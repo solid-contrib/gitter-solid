@@ -1,8 +1,11 @@
 /* Notify me of solid chat new things
 *
+* Keeps track of what things you want to track in your solid preferences file
+*
 */
 // import DateFolder  from '../solid-ui/src/chat/dateFolders.js'
-const DateFolder = require('../solid-ui/src/chat/dateFolder.js')
+
+const DateFolder = require('./logic/dateFolder.js')
 
 const fs = require('fs')
 const command = process.argv[2]
@@ -16,6 +19,7 @@ const ns = solidNamespace($rdf)
 const a = ns.rdf('type')
 
 const solidChatURI = process.argv[3] || 'https://timbl.com/timbl/Public/Archive/solid/chat/index.ttl#this'
+const outputFileName = process.argv[4] || null
 const solidChat = $rdf.sym(solidChatURI)
 
 // const messageBodyStyle = 'white-space: pre-wrap; width: 99%; font-size:100%; border: 0.07em solid #eee; padding: .3em 0.5em; margin: 0.1em;',
@@ -88,6 +92,8 @@ function suitable (x) {
   // return kb.anyValue(chatDocument, POSIX('size')) !== 0 // empty file?
 }
 
+/* Find the first (or last) message in the time series folders
+*/
 async function firstMessage (chatChannel, backwards) { // backwards -> last message
   var folderStore = $rdf.graph()
   var folderFetcher = new $rdf.Fetcher(folderStore)
@@ -129,7 +135,55 @@ function hashSymbol (x, doc) {
   return $rdf.sym(doc.uri + '#X' + (hash(x.uri) & 0x7fffffff).toString(16))
 }
 
-async function go () {
+/*  Convert messages to HTML
+*/
+async function htmlFromMessages (chatChannel, messages, startTime) {
+  console.log(`Messages from ${startTime}`)
+  var sortMe = messages.map(m => [ kb.the(m, ns.dct('created')).value, m])
+  sortMe.sort()
+  sortMe = sortMe.filter(x => x[0] >= startTime)
+  var todo = sortMe.map(x => x[1])
+  console.log('to do  ' + todo.length)
+
+  var t = kb.anyValue(chatChannel, ns.dct('title')) || ''
+
+  var title = `Messages from solid chat ${t}`
+  var htmlText = `<html>
+  <head>
+    <title>${escapeXml(title)}</title>
+  </head>
+  <body>
+  <table>
+  `
+  var lastMaker = null
+  for (var message of todo) {
+    let created = kb.the(message, ns.dct('created'))
+    let when = created.value.slice(11, 16) // hhmm
+    let maker = kb.the(message, ns.foaf('maker'))
+    await fetcher.load(maker.doc())
+    let nick = kb.any(maker, ns.foaf('nick')).value
+    let photo = kb.any(maker, ns.vcard('photo')).uri
+    let content = kb.anyValue(message, ns.sioc('richContent')) || escapeXml(kb.anyValue(message, ns.sioc('content')))
+    // @@ todo: sanitize html content
+
+    console.log()
+    console.log('-' + nick + ':  ' + when)
+    console.log(' ---> ' + content)
+    let dup = lastMaker && lastMaker.sameTerm(maker)
+    let picHTML = dup ? '' :  `<img src="${photo}" style="width:3em; height:3em;">`
+    let nameHTML = dup ? '' : `${nick} ${when}<br/>`
+
+    htmlText += `\n<tr><td>${picHTML}</td><td>${nameHTML}\n${content}</td></tr>`
+    lastMaker = maker
+  }
+  htmlText += `</table>
+  </body>
+  </html>
+  `
+  return htmlText
+}
+
+async function logInGetSubscriptions () {
   console.log('Log into solid')
   var session = await auth.login()
   if (!session) throw new Error('Wot no solid session?')
@@ -165,95 +219,85 @@ async function go () {
   const subscriptions = actions.filter(action => kb.holds(action, a, ns.schema('SubscribeAction'), prefs))
   console.log('Actions: ' + actions.length)
   console.log('Subscriptions: ' + subscriptions.length)
+  return { me, subscriptions}
+}
+
+
+
+async function loadMessages (chatChannel, lastNotified) {
+  console.log('loadMessages ' + chatChannel)
+  const dateFolder = new DateFolder(chatChannel, 'chat.ttl', ns.wf('message'), kb)
+  const finalMessage = await dateFolder.firstLeaf(true)
+  const initialMessage = lastNotified || await dateFolder.firstLeaf(false)
+
+  console.log(`    Notifying messages between ${initialMessage} and ${finalMessage}`)
+  if (initialMessage.sameTerm(finalMessage)) {
+    console.log('      No new messagess')
+    return {messages: [], startTime: null}
+  } else {
+    await fetcher.load(initialMessage)
+    var messageFile = finalMessage.doc()
+    while (1) {
+      console.log('Loading ' + messageFile)
+      await kb.fetcher.load(messageFile)
+      var finalDate = dateFolder.dateFromLeafDocument(finalMessage.doc())
+      var previousDate = await dateFolder.loadPrevious(finalDate)
+      if (!previousDate) break // no more chat
+      var previousFile = dateFolder.leafDocumentFromDate(previousDate)
+      if (previousFile.sameTerm(initialMessage.doc())) {
+        break // Loaded enough
+      }
+      messageFile = previousFile
+    }
+    var startTime = kb.the(initialMessage, ns.dct('created')).value
+    var messages = kb.each(chatChannel, ns.wf('message'), null)
+    console.log('messages altogether: ' + messages.length)
+    return { messages, startTime}
+  }
+}
+
+async function writeToFile (text, filename) {
+  console.log('writing file...' + filename)
+  fs.writeFile(filename, text, function (err) {
+    if (err) {
+      console.error('Error writing file ' + err)
+    } else {
+      console.log('written file')
+    }
+  })
+}
+
+async function go () {
+
   if (command === 'notify') {
+    const { me, subscriptions} = await logInGetSubscriptions()
     for (let sub of subscriptions) {
       var chatChannel = kb.the(sub, ns.schema('object'))
-      const dateFolder = new DateFolder(chatChannel, 'chat.ttl', ns.wf('message'))
-
-      var finalMessage = await dateFolder.firstLeaf(true)
       var lastNotified = kb.the(sub, ns.solid('lastNotified'))
       if (!lastNotified) {
         console.log('No previous notifications -- so start from here: ' + finalMessage)
         updater.update([], [$rdf.st(sub, ns.solid('lastNotified'), finalMessage, prefs)])
       } else {
-        console.log(`    Notifying messages between ${lastNotified} and ${finalMessage}`)
-        if (lastNotified.sameTerm(finalMessage)) {
-          console.log('      No new messagess')
-        } else {
-          await fetcher.load(lastNotified)
-          var messageFile = finalMessage.doc()
-          while (1) {
-            console.log('Loading ' + messageFile)
-            await kb.fetcher.load(messageFile)
-            var finalDate = dateFolder.dateFromLeafDocument(finalMessage.doc())
-            var previousDate = await dateFolder.loadPrevious(finalDate)
-            if (!previousDate) break // no more chat
-            var previousFile = dateFolder.leafDocumentFromDate(previousDate)
-            if (previousFile.sameTerm(lastNotified.doc())) {
-              break // Loaded enough
-            }
-            messageFile = previousFile
-          }
-          var startTime = kb.the(lastNotified, ns.dct('created')).value
-          var messages = kb.each(chatChannel, ns.wf('message'), null)
-          console.log('messages altogether: ' + messages.length)
-          var sortMe = messages.map(m => [ kb.the(m, ns.dct('created')).value, m])
-          sortMe.sort()
-          sortMe = sortMe.filter(x => x[0] < startTime)
-          var todo = sortMe.map(x => x[1])
-          console.log('to do  ' + todo.length)
-
-          var t = kb.anyValue(chatChannel, ns.dct('title')) || ''
-
-          var title = `Messages from solid chat ${t}`
-          var htmlText = `<html>
-          <head>
-            <title>${escapeXml(title)}</title>
-          </head>
-          <body>
-          <table>
-          `
-          var lastMaker = null
-          for (var message of todo) {
-            let created = kb.the(message, ns.dct('created'))
-            let when = created.value.slice(11, 16) // hhmm
-            let maker = kb.the(message, ns.foaf('maker'))
-            await fetcher.load(maker.doc())
-            let nick = kb.any(maker, ns.foaf('nick')).value
-            let photo = kb.any(maker, ns.vcard('photo')).uri
-            let content = kb.anyValue(message, ns.sioc('richContent')) || escapeXml(kb.anyValue(message, ns.sioc('content')))
-            // @@ todo: sanitize html content
-
-            console.log()
-            console.log('-' + nick + ':  ' + when)
-            console.log(' ---> ' + content)
-            let dup = lastMaker && lastMaker.sameTerm(maker)
-            let picHTML = dup ? '' :  `<img src="${photo}" style="width:3em; height:3em;">`
-            let nameHTML = dup ? '' : `${nick} ${when}<br/>`
-
-            htmlText += `\n<tr><td>${picHTML}</td><td>${nameHTML}\n${content}</td></tr>`
-            lastMaker = maker
-          }
-          htmlText += `</table>
-          </body>
-          </html>
-          `
-          const filename = ',temp.html'
-          console.log('writing file...')
-          fs.writeFile(filename, htmlText, function (err) {
-            if (err) {
-              console.error('Error writing file ' + err)
-            } else {
-              console.log('written file')
-            }
-            console.log(htmlText)
-          })
-        }
+        const {messages, startTime} = await loadMessages(chatChannel, lastNotified)
+        const htmlText = await htmlFromMessages(chatChannel, messages, startTime)
+        writeToFile(htmlText,  outputFileName || ',temp.html')
       }
     }
+  } // notify
+
+
+  if (command === 'show') {
+    if (!solidChat) throw new Error("No chat channel specified")
+    // const { me, subscriptions} = await logInGetSubscriptions()
+    const {messages, startTime} = await loadMessages(solidChat)
+    const html = await htmlFromMessages(solidChat, messages, startTime)
+    console.log(html)
+    writeToFile(html, outputFileName || ',exported-chat.html')
   }
+
   if (command === 'list') {
-    console.log('Subescriptions:')
+    const { me, subscriptions} = await logInGetSubscriptions()
+    console.log('Subscriptions:')
     for (let sub of subscriptions) {
       console.log('  Subscription to ' + kb.any(sub, ns.schema('object')))
       console.log('               by ' + kb.any(sub, ns.schema('agent')))
@@ -261,8 +305,9 @@ async function go () {
   }
 
   if (command === 'subscribe') {
+    const { me, subscriptions} = await logInGetSubscriptions()
     if (kb.any(null, ns.schema('object'), solidChat, prefs)) {
-      console.log('Sorry already have somethhing about ' + solidChat)
+      console.log('Sorry already have something about ' + solidChat)
     } else {
       var subscription = hashSymbol(solidChat, prefs)
       await updater.update([], [$rdf.st(subscription, a, ns.schema('SubscribeAction'), prefs),

@@ -7,14 +7,14 @@
 const debug = console
 
 // const kb = require('../store.js')
-const ns0 = require('solid-namespace')
-const $rdf = require('rdflib')
+import  ns0 from 'solid-namespace'
+import $rdf  from 'rdflib'
 const ns = ns0($rdf)
 
 /**
  * Track back through the YYYY/MM/DD tree to find the previous/next day
  */
-module.exports = class DateFolder {
+export class DateFolder {
   constructor (rootThing, leafFileName, membershipProperty, store) {
     this.root = rootThing
     this.rootFolder = rootThing.dir()

@@ -5,16 +5,45 @@
 */
 // import DateFolder  from '../solid-ui/src/chat/dateFolders.js'
 
-const DateFolder = require('./logic/dateFolder.js')
 
-const fs = require('fs')
+// $rdf = require('rdflib')
+import $rdf from 'rdflib'
+
+// console.log('$rdf', $rdf)
+
+import { login,fetch }  from '../../jeff-zucker/solid-node-client/src/index.js'
+// import { login, logout, fetch } from 'solid-node-client'
+
+
+import  { DateFolder } from './logic/dateFolder.js'
+import fs from 'fs'
+import  solidNamespace from 'solid-namespace'
+
+const store = new $rdf.Store()
+const kb = store // shorthand -- knowledge base
+// const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
+const fetcher = $rdf.fetcher(store, {fetch: fetch, timeout: 900000})
+const updater = new $rdf.UpdateManager(store)
+
+const instructions = `Solid chat export and subscriptions
+
+These (mostly) leverage your solid pod to store your subscriptions
+and record where
+Run this as node chat-notify <command> <solidChatUri>  <filename>
+
+     show        chat file  Makes a local HTML file of the chat
+     list                   Lists your subscriptions
+     subscribe   chat       Add this chat to the ones you get notified about
+     notify
+`
+
+// const fs = require('fs')
 const command = process.argv[2]
 
 // var UI = require('../solid-ui/lib/index')
 /* global $rdf */
 
-$rdf = require('rdflib')
-const solidNamespace = require('solid-namespace')
+// const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 const a = ns.rdf('type')
 
@@ -23,13 +52,8 @@ const outputFileName = process.argv[4] || null
 const solidChat = $rdf.sym(solidChatURI)
 
 // const messageBodyStyle = 'white-space: pre-wrap; width: 99%; font-size:100%; border: 0.07em solid #eee; padding: .3em 0.5em; margin: 0.1em;',
-const messageBodyStyle =  require('../solid-ui/src/style').messageBodyStyle
+// const messageBodyStyle =  require('../solid-ui/src/style').messageBodyStyle
 
-const store = $rdf.graph()
-const kb = store // shorthand -- knowledge base
-const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
-const updater = new $rdf.UpdateManager(store)
 
 function delay (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -151,6 +175,7 @@ async function htmlFromMessages (chatChannel, messages, startTime) {
   var htmlText = `<html>
   <head>
     <title>${escapeXml(title)}</title>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
   </head>
   <body>
   <table>
@@ -185,7 +210,7 @@ async function htmlFromMessages (chatChannel, messages, startTime) {
 
 async function logInGetSubscriptions () {
   console.log('Log into solid')
-  var session = await auth.login()
+  var session = await login()
   if (!session) throw new Error('Wot no solid session?')
   // console.log('sesssion ' + JSON.stringify(session))
   var me = session.webId
@@ -219,7 +244,7 @@ async function logInGetSubscriptions () {
   const subscriptions = actions.filter(action => kb.holds(action, a, ns.schema('SubscribeAction'), prefs))
   console.log('Actions: ' + actions.length)
   console.log('Subscriptions: ' + subscriptions.length)
-  return { me, subscriptions}
+  return { me, subscriptions, prefs}
 }
 
 
@@ -270,17 +295,22 @@ async function writeToFile (text, filename) {
 async function go () {
 
   if (command === 'notify') {
-    const { me, subscriptions} = await logInGetSubscriptions()
+    const { me, subscriptions, prefs} = await logInGetSubscriptions()
     for (let sub of subscriptions) {
       var chatChannel = kb.the(sub, ns.schema('object'))
       var lastNotified = kb.the(sub, ns.solid('lastNotified'))
       if (!lastNotified) {
+        const dateFolder = new DateFolder(chatChannel, 'chat.ttl', ns.wf('message'), kb)
+
+        const finalMessage = await dateFolder.firstLeaf(true)
+
         console.log('No previous notifications -- so start from here: ' + finalMessage)
         updater.update([], [$rdf.st(sub, ns.solid('lastNotified'), finalMessage, prefs)])
       } else {
         const {messages, startTime} = await loadMessages(chatChannel, lastNotified)
         const htmlText = await htmlFromMessages(chatChannel, messages, startTime)
-        writeToFile(htmlText,  outputFileName || ',temp.html')
+        writeToFile(htmlText, ',temp.html')
+
       }
     }
   } // notify
@@ -289,14 +319,14 @@ async function go () {
   if (command === 'show') {
     if (!solidChat) throw new Error("No chat channel specified")
     // const { me, subscriptions} = await logInGetSubscriptions()
-    const {messages, startTime} = await loadMessages(solidChat)
+    const {messages, startTime, prefs} = await loadMessages(solidChat)
     const html = await htmlFromMessages(solidChat, messages, startTime)
     console.log(html)
     writeToFile(html, outputFileName || ',exported-chat.html')
   }
 
   if (command === 'list') {
-    const { me, subscriptions} = await logInGetSubscriptions()
+    const { me, subscriptions, prefs} = await logInGetSubscriptions()
     console.log('Subscriptions:')
     for (let sub of subscriptions) {
       console.log('  Subscription to ' + kb.any(sub, ns.schema('object')))
@@ -305,7 +335,7 @@ async function go () {
   }
 
   if (command === 'subscribe') {
-    const { me, subscriptions} = await logInGetSubscriptions()
+    const { me, subscriptions, prefs} = await logInGetSubscriptions()
     if (kb.any(null, ns.schema('object'), solidChat, prefs)) {
       console.log('Sorry already have something about ' + solidChat)
     } else {

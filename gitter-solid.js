@@ -3,7 +3,13 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
-require('dotenv').config()
+import dotenv from 'dotenv'
+import $rdf from 'rdflib'
+import solidNamespace from 'solid-namespace'
+import Gitter from 'node-gitter'
+
+dotenv.config()
+
 
 const command = process.argv[2]
 const targetRoomName = process.argv[3] // solid/chat
@@ -14,9 +20,6 @@ if (command !== 'list' && !archiveBaseURI) {
   process.exit(1)
 }
 */
-var Gitter = require('node-gitter')
-var $rdf = require('rdflib')
-const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 
 if (!ns.wf) {
@@ -36,7 +39,7 @@ const gitter = new Gitter(GITTER_TOKEN)
 // import readline from 'readline-promise';
 
 // const readLinePromise = require('readline-promise')
-const readline = require('readline')
+import readline from 'readline'
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -80,7 +83,7 @@ const kb = store // shorthand -- knowledge base
 
 //const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
 // const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
-const SolidNodeClient = require('solid-node-client').SolidNodeClient // https://www.npmjs.com/package/solid-node-client
+import {SolidNodeClient} from 'solid-node-client'
 const auth = new SolidNodeClient()
 const fetcher = $rdf.fetcher(store, {fetch: auth.fetch.bind(auth), timeout: 900000})
 

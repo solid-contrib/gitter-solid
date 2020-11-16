@@ -11,8 +11,10 @@ import $rdf from 'rdflib'
 
 // console.log('$rdf', $rdf)
 
-import { login,fetch }  from '../../jeff-zucker/solid-node-client/src/index.js'
-// import { login, logout, fetch } from 'solid-node-client'
+// import {login,fetch} from '../../jeff-zucker/solid-node-client/src/index.js'
+// solid-node-client is now on NPM, import the object, not functions 
+import {SolidNodeClient} from 'solid-node-client';
+const client = new SolidNodeClient();
 
 
 import  { DateFolder } from './logic/dateFolder.js'
@@ -22,7 +24,7 @@ import  solidNamespace from 'solid-namespace'
 const store = new $rdf.Store()
 const kb = store // shorthand -- knowledge base
 // const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-const fetcher = $rdf.fetcher(store, {fetch: fetch, timeout: 900000})
+const fetcher = $rdf.fetcher(store, {fetch: client.fetch.bind(client), timeout: 900000})
 const updater = new $rdf.UpdateManager(store)
 
 const instructions = `Solid chat export and subscriptions
@@ -210,7 +212,7 @@ async function htmlFromMessages (chatChannel, messages, startTime) {
 
 async function logInGetSubscriptions () {
   console.log('Log into solid')
-  var session = await login()
+  var session = await client.login()
   if (!session) throw new Error('Wot no solid session?')
   // console.log('sesssion ' + JSON.stringify(session))
   var me = session.webId

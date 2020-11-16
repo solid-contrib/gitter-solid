@@ -22,6 +22,7 @@
     "rdflib": "^0.20.1",
     "slack": "^11.0.2",
     "solid-namespace": "^0.2.0",
+    "solid-node-client": "^1.2.0",
     "yargs": "^13.2.4"
   },
   "bin": {

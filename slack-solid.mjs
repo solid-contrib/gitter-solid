@@ -5,13 +5,14 @@
 // and https://api.slack.com/methods/conversations.list
 
 // and https://www.npmjs.com/package/slack
-// and https://www.npmjs.com/package/solid-auth-cli
+// and https://www.npmjs.com/package/solid-node-client
 
 import yargs from 'yargs'
 import dotenv from 'dotenv'
 import $rdf from 'rdflib'
 import solidNamespace from 'solid-namespace'
-import auth from 'solid-auth-cli'
+import {SolidNodeClient} from 'solid-node-client'
+const auth = new SolidNodeClient()
 
 dotenv.config()
 
@@ -84,7 +85,7 @@ const peopleBaseURI = 'STANDIN'
 
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
-const fetcher = $rdf.fetcher(store, { fetch: auth.fetch, timeout: 900000 })
+const fetcher = $rdf.fetcher(store, { fetch: auth.fetch.bind(auth), timeout: 900000 })
 const updater = new $rdf.UpdateManager(store)
 
 function delay (ms) {

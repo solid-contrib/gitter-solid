@@ -78,9 +78,11 @@ function clone (options) {
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
 
-const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-
-const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
+//const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
+// const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
+const SolidNodeClient = require('solid-node-client').SolidNodeClient // https://www.npmjs.com/package/solid-node-client
+const auth = new SolidNodeClient()
+const fetcher = $rdf.fetcher(store, {fetch: auth.fetch.bind(auth), timeout: 900000})
 
 // const fetcher = new $rdf.Fetcher(store, {timeout: 900000}) // ms
 const updater = new $rdf.UpdateManager(store)

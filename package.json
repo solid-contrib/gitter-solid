@@ -1,6 +1,5 @@
 {
   "name": "gitter-solid",
-  "type": "module",
   "description": "command line utility to move giiter chat to solid chat",
   "version": "1.0.1",
   "author": {
@@ -19,7 +18,7 @@
     "debug": ">=2.6.9",
     "dotenv": "^8.0.0",
     "node-gitter": "^2.1.0",
-    "rdflib": "^0.20.1",
+    "rdflib": "^2.1.1",
     "slack": "^11.0.2",
     "solid-namespace": "^0.2.0",
     "solid-node-client": "^1.2.0",

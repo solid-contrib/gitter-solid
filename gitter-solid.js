@@ -7,58 +7,49 @@ import dotenv from 'dotenv'
 import $rdf from 'rdflib'
 import solidNamespace from 'solid-namespace'
 import Gitter from 'node-gitter'
+import {SolidNodeClient} from '../solid-node-client/dist/cjs/index.js'
+import readlineSync from 'readline-sync';
 
 dotenv.config()
 
-
-const command = process.argv[2]
-const targetRoomName = process.argv[3] // solid/chat
-const archiveBaseURI = process.argv[4] // like 'https://timbl.com/timbl/Public/Archive/'
-/*
-if (command !== 'list' && !archiveBaseURI) {
-  console.error('syntax:  node solid=gitter.js  <command> <chatroom>  <solid archive root>')
-  process.exit(1)
-}
+/* SILENCE FETCH_QUEUE ERRORS
+     see https://github.com/linkeddata/rdflib.js/issues/461
 */
-const ns = solidNamespace($rdf)
+console.log = (...msgs)=>{
+  for(var m of msgs){
+    m = m.toString()
+    if( !m.match('fetchQueue') ){
+      console.warn(m);
+    }
+  }
+}
 
+var command = process.argv[2]
+var targetRoomName = process.argv[3]
+var archiveBaseURI = process.argv[4] 
+var GITTER_TOKEN = process.env.GITTER_TOKEN
+
+if(!command) {
+  command = await readlineSync.question('Command (e.g. create) : ');
+}
+if(!targetRoomName) {
+  targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
+}
+if (!GITTER_TOKEN) {
+  GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+}
+const gitter = new Gitter(GITTER_TOKEN)
+
+
+const ns = solidNamespace($rdf)
 if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
 // see https://www.npmjs.com/package/node-gitter
 
-var GITTER_TOKEN = process.env.GITTER_TOKEN
-if (!GITTER_TOKEN) {
-  console.error('NO GITTER TOKEN SET')
-  process.exit(1)
-  // await load()
-}
-// console.log('GITTER_TOKEN ' + GITTER_TOKEN)
-const gitter = new Gitter(GITTER_TOKEN)
-
-// import readline from 'readline-promise';
-
-// const readLinePromise = require('readline-promise')
-import readline from 'readline'
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  terminal: true
-})
-
-function question (q) {
-  return new Promise((resolve, reject) => {
-    rl.question(q + ' ', (a) => { // space for answer not to be crowded
-      rl.close()
-      resolve(a)
-    })
-  })
-}
-
 async function confirm (q) {
   while (1) {
-    var a = await question(q)
+    var a = (await readlineSync.question(q+' (y/n)? ')).trim().toLowerCase();
     if (a === 'yes' || a === 'y') return true
     if (a === 'no' || a === 'n') return false
     console.log('  Please reply y or n')
@@ -78,18 +69,13 @@ function clone (options) {
 
 /// ///////////////////////////// Solid Bits
 
+const auth = new SolidNodeClient({parser:$rdf})
+const fetcherOpts = {fetch: auth.fetch.bind(auth), timeout: 900000};
+
 const store = $rdf.graph()
 const kb = store // shorthand -- knowledge base
-
-//const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-// const fetcher = $rdf.fetcher(store, {fetch: auth.fetch, timeout: 900000})
-import {SolidNodeClient} from 'solid-node-client'
-const auth = new SolidNodeClient()
-const fetcher = $rdf.fetcher(store, {fetch: auth.fetch.bind(auth), timeout: 900000})
-
-// const fetcher = new $rdf.Fetcher(store, {timeout: 900000}) // ms
-const updater = new $rdf.UpdateManager(store)
-// const updater = new $rdf.UpdateManager(store)
+const fetcher = $rdf.fetcher(kb, fetcherOpts)
+const updater = new $rdf.UpdateManager(kb)
 
 function delayMs (ms) {
   console.log('pause ... ')
@@ -121,7 +107,7 @@ async function update (ddd, sts) {
 function archiveBaseURIFromGitterRoom (room, config) {
   const folder = room.oneToOne ? config.individualChatFolder
          : room.public ? config.publicChatFolder : config.privateChatFolder
-  return folder.uri
+  return (folder.uri) ? folder.uri : folder // needed if config newly created
 }
 
 /** Decide URI of solid chat vchanel from properties of gitter room
@@ -135,7 +121,6 @@ function chatChannelFromGitterRoom (room, config) {
     segment += '/_Organization' // make all multi rooms two level names
   }
   var archiveBaseURI = archiveBaseURIFromGitterRoom(room, config)
-  // console.log('archiveBaseURI ' + archiveBaseURI)
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
   if (room.oneToOne) {
     var username = room.user.username
@@ -185,7 +170,7 @@ function suitable (x) {
 
 async function firstMessage (chatChannel, backwards) { // backwards -> last message
   var folderStore = $rdf.graph()
-  var folderFetcher = new $rdf.Fetcher(folderStore)
+  var folderFetcher = new $rdf.Fetcher(folderStore,fetcherOpts)
   async function earliestSubfolder (parent) {
     // console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
@@ -620,17 +605,60 @@ async function doRoom (room, config) {
 }
 
 async function loadConfig () {
-  console.log('Log into solid')
-  var session = await auth.login({
-    idp: process.env.SOLID_IDP,
-    username: process.env.SOLID_USERNAME,
-    password: process.env.SOLID_PASSWORD
-  })
-  var webId = session.webId
+  let webId;
+  let localPod = archiveBaseURI;
+  let remotePod = false;
+  if(!localPod){
+    remotePod = await confirm('Store on remote pod');
+    if(!remotePod) {
+      localPod =  await readlineSync.question('URI to local pod (e.g. file:///home/me/myPod/) : ');
+    }
+  }
+  if( localPod && !remotePod && !localPod.startsWith('http')){  
+    // if no profile or local Pod found, offer to create them
+    console.log('Use local WebId');
+    webId = `${localPod.replace(/\/$/,'')}/profile/card#me`
+    let profileDoc = ($rdf.sym(webId)).doc()
+    let exists
+    try {
+      console.log(`Looking for ${webId} ...`)
+      exists = await auth.fetch(webId)
+    } catch{}
+    if( !exists || exists.statusText != "OK" ){
+      let a=await confirm(`No local webId found at <${localPod}>, create it`);
+      if( !a ) {
+         console.log("No local pod, exiting ..");
+         process.exit();
+      }
+      else {
+        console.log(`Creating serverless pod at ${localPod} ...`);
+        await auth.createServerlessPod( localPod );
+        console.log('Serverless local pod created for ${webid}');
+      }
+    }
+  }
+  else {
+    const creds = {
+      idp: process.env.SOLID_IDP ,
+      username: process.env.SOLID_USERNAME,
+      password: process.env.SOLID_PASSWORD
+    }
+    if(!creds.idp){
+      const idp = await readlineSync.question('Identity Provider (e.g. https://solidcommunity.net) : ')
+    }
+    if(!creds.username){
+      const username = await readlineSync.question('Pod username : ')
+    }
+    if(!creds.password){
+      const password = await readlineSync.question('Pod password : ')
+    }
+    console.log(`Logging into Solid Pod <${creds.idp}>`)
+    var session = await auth.login(creds);
+    webId = session.webId
+  }
   const me = $rdf.sym(webId)
   console.log('Logged in to Solid as ' + me)
   var gitterConfig = {}
-
   await fetcher.load(me.doc())
   const prefs = kb.the(me, ns.space('preferencesFile'), null, me.doc())
   console.log('Loading prefs ' + prefs)
@@ -664,8 +692,8 @@ async function loadConfig () {
     if (x && x.uri) {
       gitterConfig[opt] = x.uri
     } else {
-      console.log('\nThis must a a full https: URI ending in a slash, which folder on your pod you want gitter chat stored.')
-      x = await question('URI for ' + opt + '?')
+      console.log('\nThis must a a full https: or file: URI ending in a slash, which folder on your pod or local file system you want gitter chat stored.')
+      x = await readlineSync.question('URI for ' + opt + '? ')
       console.log('@@@@@ aaaaa :' + x)
       if (x.length > 0 && x.endsWith('/')) {
         console.log(`@@ saving config ${opt} =  ${x}`)
@@ -687,9 +715,7 @@ async function go () {
   var privateRooms = []
   var publicRooms = []
   var usernameIndex = {}
-  console.log('Target roomm name: ' + targetRoomName)
-
-  console.log('Logging into gitter ...')
+  console.log(`Logging into gitter room ${targetRoomName} ...`)
   var user
   try {
     user = await gitter.currentUser()

@@ -7,7 +7,12 @@
     "name": "Tim Berners-Lee",
     "email": "timbl@w3.org"
   },
-  "maintainers": [],
+  "contributors": [
+    {
+      "name": "Jeff Zucker",
+      "email": "dubzed@gmail.com"
+    }
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,10 +24,11 @@
     "debug": ">=2.6.9",
     "dotenv": "^8.0.0",
     "node-gitter": "^2.1.0",
-    "rdflib": "^2.1.1",
+    "rdflib": "^2.1.7",
+    "readline-sync": "^1.4.10",
     "slack": "^11.0.2",
     "solid-namespace": "^0.2.0",
-    "solid-node-client": "^1.2.0",
+    "solid-node-client": "^2.0.2",
     "yargs": "^13.2.4"
   },
   "bin": {

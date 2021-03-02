@@ -1,8 +1,9 @@
-# solid-gitter
+# gitter-solid
+
 A command line or batch processing tool to move data from [gitter](https://gitter.im)
 chat into a [solid](https://solid.inrupt.net/) pod.
 
-Do you have a projects which use gitter chats, but you would like to do do solid things
+Do you have projects which use gitter chats, but you would like to do do solid things
 with them, like bookmark chat messages, and so on?
 Do you have a lot of your projects institutional memory in gitter chats, and worry about
 it gitter going away one day, or being offline?  Do you want to be able to use and build all kinds of search and
@@ -12,20 +13,17 @@ analysis tools on top of your gitter chat data?  Maybe you should be using this 
 ## Usage
 ### Solid access
 
-You will need to give your script access to solid account which will have write access
-to the pod where you will be storing the solid chat.   This is done in any of the ways
-[`solid-node-client`](https://github.com/solid/solid-node-client) can pick up credentials,
-such as passing the credentials in the call to login or, if absent, getting them from
-environment variables `SOLID_IDP`, `SOLID_USERNAME` and `SOLID_PASSWORD`.
+If you will be storing your chats on the local filesystem, you don't need Solid access.
+
+If you will be storing your chats on a Solid Pod (either local or remote), you will need to provide login credentials to give your script write access.   You can export enviornoment variables (SOLID_IDP, SOLID_USERNAME, SOLID_PASSWORD) or let the script prompt you for the values if the environment variables are not found.
 
 ### Gitter access
 
-You will need to give the script access to the gitter world, which means to get a gitter token.
-See https://developer.gitter.im/docs/welcome   .
+You will need to give the script access to the gitter world, which means to get a gitter token. See https://developer.gitter.im/docs/welcome   .
 
 [Get a token](https://developer.gitter.im/apps).
 
-Then you can save it and pass it to this program as an environment variable.
+Then you can save it and pass it to this program as an environment variable (GITTER_TOKEN) or if no environment variable exists, you can let the script prompt you for it.
 
 Syntax for example:
 ```
@@ -35,7 +33,7 @@ node gitter-solid.js   list
 
 ```
 
-One you have set your shell session up with the gitter token,
+Once you have set your shell session up with the gitter token,
 you can use gitter-solid repeatedly.
 
 ## Gitter rooms
@@ -55,7 +53,12 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
 
   ## Places to store the chat
 
-  It is important to make sure that creating a copy of
+  You will be asked if you want to store the chat remotely.  If you answer
+  no, you will be prompted for a local file location (see below). 
+  In either case,  you will then be prompted to give the locations of the 
+  folder for different kinds of chats.
+
+  The separate folders are necessary when using a server-based pod, because it is important to make sure that creating a copy of
   chat data in a solid pod does not give anyone access to is
   who would not have access to it on gitter.   Particularly, don't make any chat
   data public unless it was a public chat on gitter.
@@ -68,19 +71,25 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
 Example
 
 ```
-This must a a full https: URI ending in a slash, which folder on your pod you want gitter chat stored.
+This must be a full https: or file: URI ending in a slash, which folder on your pod you want gitter chat stored.
 URI for publicChatFolder? https://timbl.com/timbl/Public/Archive/
-
+or
+URI for publicChatFolder? file:///home/jeff/myPod/Public/Archive/
 ```
 
  ## Syntax
 
+ The descriptin of command, room, and optionalPodURI, are shown below as
+ parameters to the command line.  You may also simply type **node gitter-solid** and let the script prompt you for the command, room, and URI.
+
  The syntax of a command line takes two parameters, a command and a room.
 
-   `node gitter-solid.js  ` *command*  *room*
+   `node gitter-solid.js  ` *command*  *room* *optionalLocalPodURI*
 
 
-   Where room is either a single room or set of rooms
+   Where optionalLocalPod
+
+   and where room is either a single room or set of rooms
 
    room | means
    ----------|-----------------------
@@ -105,7 +114,7 @@ URI for publicChatFolder? https://timbl.com/timbl/Public/Archive/
 
  ### archive command
 
-Go to the earliest message in the current soldd chat channel, and go back through gitter history to attempt
+Go to the earliest message in the current gitter chat channel, and go back through gitter history to attempt
 to bring it all over into solid.
 
  ### catchup command
@@ -117,6 +126,24 @@ to bring it all over into solid.
 
  Do  a *catchup* command as above them, listen to for any new messages (Events) on the gitter room. When they arrive, add new messages to the solid, or delete ior modify existing messages accoriding to the gitterr event.  This command causes th eprogram to hang in the command line shell without returning.   Streemin more than one room at a time has not been tested.
 
+ ## Storing chats locally
+
+ If you wish to store your chats locally without installing a Solid server,
+ you can supply a file: URL pointing to the local place you'd like the 
+ archive stored. Supply this either on the command-line as the third argument,  of let the script prompt you for it.
+
+ The first time you specify this location you will be prompted to
+ create a serverless Pod at that location and if you agree, a profile,
+ preferences file, and other key pod resources will be created.
+
+ Once you have created a local pod, the process is the same as for
+ storing the archive on a server - gitter-solid follows its nose
+ from your webId, to your profile, to your preferences file, and 
+ then prompts you to add a gitterConfiguration file to your preferences.
+
+  You can edit your profile and other pod documents as needed and also
+  reuse them for other local apps such as Data-Kitchen and solid-shell.
+
  ## Notes
 
  Bugs/Ideas reports please [on githiub](https://github.com/solid/gitter-solid/issues/)
@@ -124,3 +151,4 @@ to bring it all over into solid.
  The gitter API limits requests, rumor has it, to 100 a minute, so an average of around 1.7Hz.  gitter-solid tries to limit itself, partly pausing every now and again.
 
  ENDS
+

@@ -79,7 +79,7 @@ URI for publicChatFolder? file:///home/jeff/myPod/Public/Archive/
 
  ## Syntax
 
- The descriptin of command, room, and optionalPodURI, are shown below as
+ The description of command, room, and optionalPodURI, are shown below as
  parameters to the command line.  You may also simply type **node gitter-solid** and let the script prompt you for the command, room, and URI.
 
  The syntax of a command line takes two parameters, a command and a room.
@@ -151,4 +151,3 @@ to bring it all over into solid.
  The gitter API limits requests, rumor has it, to 100 a minute, so an average of around 1.7Hz.  gitter-solid tries to limit itself, partly pausing every now and again.
 
  ENDS
-

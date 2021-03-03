@@ -59,7 +59,7 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
   folder for different kinds of chats.
 
   The separate folders are necessary when using a server-based pod, because it is important to make sure that creating a copy of
-  chat data in a solid pod does not give anyone access to is
+  chat data in a solid pod does not give anyone access to it
   who would not have access to it on gitter.   Particularly, don't make any chat
   data public unless it was a public chat on gitter.
 

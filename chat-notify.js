@@ -3,26 +3,21 @@
 * Keeps track of what things you want to track in your solid preferences file
 *
 */
-// import DateFolder  from '../solid-ui/src/chat/dateFolders.js'
 
-
-// $rdf = require('rdflib')
 import $rdf from 'rdflib'
+import {SolidNodeClient} from 'solid-node-client';
+const client = new SolidNodeClient({parser:$rdf})
+global.solidFetcher = client.fetch.bind(client);
 
-// console.log('$rdf', $rdf)
-
-import { login,fetch }  from '../../jeff-zucker/solid-node-client/src/index.js'
-// import { login, logout, fetch } from 'solid-node-client'
-
-
+// import DateFolder  from '../solid-ui/src/chat/dateFolders.js'
 import  { DateFolder } from './logic/dateFolder.js'
 import fs from 'fs'
 import  solidNamespace from 'solid-namespace'
 
 const store = new $rdf.Store()
 const kb = store // shorthand -- knowledge base
-// const auth = require('solid-auth-cli') // https://www.npmjs.com/package/solid-auth-cli
-const fetcher = $rdf.fetcher(store, {fetch: fetch, timeout: 900000})
+
+const fetcher = $rdf.fetcher(store);
 const updater = new $rdf.UpdateManager(store)
 
 const instructions = `Solid chat export and subscriptions
@@ -37,18 +32,14 @@ Run this as node chat-notify <command> <solidChatUri>  <filename>
      notify
 `
 
-// const fs = require('fs')
-const command = process.argv[2]
-
-// var UI = require('../solid-ui/lib/index')
-/* global $rdf */
-
 // const solidNamespace = require('solid-namespace')
 const ns = solidNamespace($rdf)
 const a = ns.rdf('type')
 
+const command = process.argv[2]
 const solidChatURI = process.argv[3] || 'https://timbl.com/timbl/Public/Archive/solid/chat/index.ttl#this'
 const outputFileName = process.argv[4] || null
+
 const solidChat = $rdf.sym(solidChatURI)
 
 // const messageBodyStyle = 'white-space: pre-wrap; width: 99%; font-size:100%; border: 0.07em solid #eee; padding: .3em 0.5em; margin: 0.1em;',
@@ -120,7 +111,7 @@ function suitable (x) {
 */
 async function firstMessage (chatChannel, backwards) { // backwards -> last message
   var folderStore = $rdf.graph()
-  var folderFetcher = new $rdf.Fetcher(folderStore)
+  var folderFetcher = new $rdf.fetcher(folderStore)
   async function earliestSubfolder (parent) {
     console.log('            parent ' + parent)
     delete folderFetcher.requested[parent.uri]
@@ -210,7 +201,7 @@ async function htmlFromMessages (chatChannel, messages, startTime) {
 
 async function logInGetSubscriptions () {
   console.log('Log into solid')
-  var session = await login()
+  var session = await client.login()
   if (!session) throw new Error('Wot no solid session?')
   // console.log('sesssion ' + JSON.stringify(session))
   var me = session.webId

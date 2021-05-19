@@ -1,4 +1,5 @@
-import auth from 'solid-auth-cli'
+import {SolidNodeClient} from 'solid-node-client'
+const auth = new SolidNodeClient()
 import $rdf from 'rdflib'
 import dotenv from 'dotenv'
 
@@ -38,7 +39,7 @@ export async function login () {
 
 export function setupStore (store = $rdf.graph()) {
   if (!store.fetcher) {
-    $rdf.fetcher(store, { fetch: auth.fetch, timeout: 900000 })
+    $rdf.fetcher(store, { fetch: auth.fetch.bind(auth), timeout: 900000 })
   }
   if (!store.updater) {
     new $rdf.UpdateManager(store)

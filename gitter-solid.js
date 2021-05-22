@@ -3,12 +3,12 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
-import dotenv from 'dotenv'
-import $rdf from 'rdflib'
-import solidNamespace from 'solid-namespace'
-import Gitter from 'node-gitter'
-import {SolidNodeClient} from '../solid-node-client/dist/cjs/index.js'
-import readlineSync from 'readline-sync';
+const dotenv = require('dotenv');
+const $rdf = require('rdflib');
+const solidNamespace = require('solid-namespace');
+const Gitter = require('node-gitter');
+const SolidNodeClient = require('../solid-node-client/').SolidNodeClient;
+const readlineSync = require('readline-sync');
 
 dotenv.config()
 
@@ -28,24 +28,29 @@ var command = process.argv[2]
 var targetRoomName = process.argv[3]
 var archiveBaseURI = process.argv[4] 
 var GITTER_TOKEN = process.env.GITTER_TOKEN
-
-if(!command) {
-  command = await readlineSync.question('Command (e.g. create) : ');
-}
-if(!targetRoomName) {
-  targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
-}
-if (!GITTER_TOKEN) {
-  GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
-}
-const gitter = new Gitter(GITTER_TOKEN)
-
+var gitter
 
 const ns = solidNamespace($rdf)
 if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
 // see https://www.npmjs.com/package/node-gitter
+
+
+async function init() {
+  if(!command) {
+    command = await readlineSync.question('Command (e.g. create) : ');
+  }
+  if(!targetRoomName) {
+    targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
+  }
+  if (!GITTER_TOKEN) {
+    GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+  }
+  gitter = new Gitter(GITTER_TOKEN)
+}
+
+
 
 async function confirm (q) {
   while (1) {
@@ -711,6 +716,7 @@ async function loadConfig () {
 }
 
 async function go () {
+  await init();
   var oneToOnes = []
   var privateRooms = []
   var publicRooms = []

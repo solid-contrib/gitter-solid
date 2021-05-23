@@ -3,12 +3,14 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
-const dotenv = require('dotenv');
-const $rdf = require('rdflib');
-const solidNamespace = require('solid-namespace');
-const Gitter = require('node-gitter');
-const SolidNodeClient = require('../solid-node-client/').SolidNodeClient;
-const readlineSync = require('readline-sync');
+import dotenv from 'dotenv'
+import $rdf from 'rdflib'
+import solidNamespace from 'solid-namespace'
+import Gitter from 'node-gitter'
+import SNC from '../solid-node-client/dist/cjs/index.js'
+const SolidNodeClient = SNC.SolidNodeClient;
+import readlineSync from 'readline-sync';
+
 
 dotenv.config()
 

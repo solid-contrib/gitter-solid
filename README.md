@@ -3,11 +3,11 @@
 A command line or batch processing tool to move data from [gitter](https://gitter.im)
 chat into a [solid](https://solid.inrupt.net/) pod.
 
-Do you have projects which use gitter chats, but you would like to do do solid things
+Do you have projects which use gitter chats, but you would like to do solid things
 with them, like bookmark chat messages, and so on?
 Do you have a lot of your projects institutional memory in gitter chats, and worry about
-it gitter going away one day, or being offline?  Do you want to be able to use and build all kinds of search and
-analysis tools on top of your gitter chat data?  Maybe you should be using this script.
+gitter going away one day, or being offline? Do you want to be able to use and build all kinds of search and
+analysis tools on top of your gitter chat data? Maybe you should be using this script.
 
 
 ## Usage
@@ -48,22 +48,22 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
   `node gitter-solid.js list direct` | List your direct messaging 1:1 chats
 
 
-  1:1 chats in this program (only) are named  using an '@' sign followed by the gitter name of the person
+  1:1 chats in this program (only) are named using an '@' sign followed by the gitter name of the person
   you are chatting with.
 
   ## Places to store the chat
 
-  You will be asked if you want to store the chat remotely.  If you answer
+  You will be asked if you want to store the chat remotely. If you answer
   no, you will be prompted for a local file location (see below). 
   In either case,  you will then be prompted to give the locations of the 
   folder for different kinds of chats.
 
   The separate folders are necessary when using a server-based pod, because it is important to make sure that creating a copy of
   chat data in a solid pod does not give anyone access to it
-  who would not have access to it on gitter.   Particularly, don't make any chat
+  who would not have access to it on gitter. Particularly, don't make any chat
   data public unless it was a public chat on gitter.
 
-  To make this easier, `gitter-solid` uses three different solid folder for each type of chat.
+  To make this easier, `gitter-solid` uses three different solid folders for each type of chat.
   These locations are stored in your pod, in a gitter preferences file. If
   you have not defined them already, gitter-solid will prompt you for them.
   Give the whole URI.
@@ -80,11 +80,11 @@ URI for publicChatFolder? file:///home/jeff/myPod/Public/Archive/
  ## Syntax
 
  The description of command, room, and optionalPodURI, are shown below as
- parameters to the command line.  You may also simply type **node gitter-solid** and let the script prompt you for the command, room, and URI.
+ parameters to the command line. You may also simply type **node gitter-solid** and let the script prompt you for the command, room, and URI.
 
  The syntax of a command line takes two parameters, a command and a room.
 
-   `node gitter-solid.js  ` *command*  *room* *optionalLocalPodURI*
+   `node gitter-solid.js  ` *command* *room* *optionalLocalPodURI*
 
 
    Where optionalLocalPod
@@ -96,7 +96,7 @@ URI for publicChatFolder? file:///home/jeff/myPod/Public/Archive/
    `solid/chat`  |  A single gitter room
    `@joeBloggs`  |  Your direct message chat room with gitter user joeBloggs
    `public`  |  All your public rooms
-   `private`  |  All your your private rooms
+   `private`  |  All your private rooms
    `direct`  |  All your direct messaging 1:1 chats
    `all`  |  All of your rooms (public or private) and chats
 
@@ -109,7 +109,7 @@ URI for publicChatFolder? file:///home/jeff/myPod/Public/Archive/
 
  ### create command
 
- This creates an new, as init does, then does catchup to local recent messages, and then and *acrhive* to  go back into the gitter room aarchive copying it into the solid archibe, going backward through time. Check the logs that nothing went wrong.
+ This creates an new empty solid chat channel, as init does, then does catchup to local recent messages, and then add *acrhive* to go back into the gitter room archive copying it into the solid archive, going backward through time. Check the logs that nothing went wrong.
  This should bring a new solid chat channel into creation and bring it up to date.
 
  ### archive command
@@ -119,18 +119,18 @@ to bring it all over into solid.
 
  ### catchup command
 
- Starting with hte most recent messages, pull in recent gitter messages, and tranfer them to solid, going backwards in time, until
- a message is found which has already been trasnfereed, then assume  solid is then up to date.
+ Starting with the most recent messages, pull in recent gitter messages, and tranfer them to solid, going backwards in time, until
+ a message is found which has already been trasnferred, then assume solid is up to date.
 
  ### stream command
 
- Do  a *catchup* command as above them, listen to for any new messages (Events) on the gitter room. When they arrive, add new messages to the solid, or delete ior modify existing messages accoriding to the gitterr event.  This command causes th eprogram to hang in the command line shell without returning.   Streemin more than one room at a time has not been tested.
+ Do a *catchup* command as above then, listen for any new messages (Events) on the gitter room. When they arrive, add new messages to the solid, or delete or modify existing messages accoriding to the gitter event. This command causes the program to hang in the command line shell without returning.   Streaming more than one room at a time has not been tested.
 
  ## Storing chats locally
 
  If you wish to store your chats locally without installing a Solid server,
  you can supply a file: URL pointing to the local place you'd like the 
- archive stored. Supply this either on the command-line as the third argument,  of let the script prompt you for it.
+ archive to be stored. Supply this either on the command-line as the third argument, or let the script prompt you for it.
 
  The first time you specify this location you will be prompted to
  create a serverless Pod at that location and if you agree, a profile,
@@ -146,8 +146,8 @@ to bring it all over into solid.
 
  ## Notes
 
- Bugs/Ideas reports please [on githiub](https://github.com/solid/gitter-solid/issues/)
+ Bugs/Ideas reports please [on githiub](https://github.com/solid-contrib/gitter-solid/issues/)
 
- The gitter API limits requests, rumor has it, to 100 a minute, so an average of around 1.7Hz.  gitter-solid tries to limit itself, partly pausing every now and again.
+ The gitter API limits requests, rumor has it, to 100 a minute, so an average of around 1.7Hz. gitter-solid tries to limit itself, partly pausing every now and again.
 
  ENDS

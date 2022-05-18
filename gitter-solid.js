@@ -7,7 +7,7 @@ const dotenv = require('dotenv');
 const $rdf = require('rdflib');
 const solidNamespace = require('solid-namespace');
 const Gitter = require('node-gitter');
-const SolidNodeClient = require('../solid-node-client/').SolidNodeClient;
+const SolidNodeClient = require('solid-node-client').SolidNodeClient;
 const readlineSync = require('readline-sync');
 
 dotenv.config()

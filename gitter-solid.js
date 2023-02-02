@@ -7,7 +7,8 @@ const dotenv = require('dotenv');
 const $rdf = require('rdflib');
 const solidNamespace = require('solid-namespace');
 const Gitter = require('node-gitter');
-const SolidNodeClient = require('../solid-node-client/').SolidNodeClient;
+// const SolidNodeClient = require('../solid-node-client/').SolidNodeClient;
+const SolidNodeClient = require('solid-node-client').SolidNodeClient;
 const readlineSync = require('readline-sync');
 
 dotenv.config()
@@ -26,7 +27,7 @@ console.log = (...msgs)=>{
 
 var command = process.argv[2]
 var targetRoomName = process.argv[3]
-var archiveBaseURI = process.argv[4] 
+var archiveBaseURI = process.argv[4]
 var GITTER_TOKEN = process.env.GITTER_TOKEN
 var gitter
 
@@ -611,7 +612,7 @@ async function doRoom (room, config) {
 
 async function loadConfig () {
   let webId;
-  let localPod = archiveBaseURI;
+  let localPod = process.argv[4];
   let remotePod = false;
   if(!localPod){
     remotePod = await confirm('Store on remote pod');
@@ -619,7 +620,7 @@ async function loadConfig () {
       localPod =  await readlineSync.question('URI to local pod (e.g. file:///home/me/myPod/) : ');
     }
   }
-  if( localPod && !remotePod && !localPod.startsWith('http')){  
+  if( localPod && !remotePod && !localPod.startsWith('http')){
     // if no profile or local Pod found, offer to create them
     console.log('Use local WebId');
     webId = `${localPod.replace(/\/$/,'')}/profile/card#me`

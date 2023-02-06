@@ -3,12 +3,25 @@
 // See https://developer.gitter.im/docs/welcome
 // and https://developer.gitter.im/docs/rest-api
 
-const dotenv = require('dotenv');
-const $rdf = require('rdflib');
-const solidNamespace = require('solid-namespace');
-const Gitter = require('node-gitter');
-const SolidNodeClient = require('solid-node-client').SolidNodeClient;
-const readlineSync = require('readline-sync');
+// import { Matrix } from 'matrix-api/Matrix';
+
+// const Matrix = require('matrix-api/Matrix').Matrix  // https://www.npmjs.com/package/matrix-api
+// import { Matrix } from 'matrix-api/Matrix';
+// import { Matrix } from 'matrix-api/Matrix.js';
+
+import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-sdk
+  // API Docs: https://matrix.org/docs/guides/usage-of-the-matrix-js-sdk
+
+import myCrypto from 'crypto'
+
+import * as dotenv from 'dotenv'
+import * as $rdf from 'rdflib'
+import solidNamespace from "solid-namespace"
+// import * as solidNamespace  from 'solid-namespace'
+import * as Gitter from 'node-gitter'
+import { SolidNodeClient } from 'solid-node-client'
+import * as  readlineSync from 'readline-sync'
+
 
 dotenv.config()
 
@@ -24,18 +37,73 @@ console.log = (...msgs)=>{
   }
 }
 
-var command = process.argv[2]
-var targetRoomName = process.argv[3]
-var archiveBaseURI = process.argv[4]
-var GITTER_TOKEN = process.env.GITTER_TOKEN
-var gitter
+const command = process.argv[2]
+const targetRoomName = process.argv[3]
+const archiveBaseURI = process.argv[4]
 
+const GITTER = false
+const MATRIX = true
+
+
+// const MATRIX_APP_ORIGIN = 'timbl.com' // or makybe a solidcommmunity pod
+
+if (typeof crypto === 'undefined') {
+  var crypto = myCrypto
+  console.log("gitter-solid local crypo", crypto)
+  global.crypto = myCrypto
+} else {
+  console.log("gitter-solid  global crypo", crypto)
+}
+console.log("gitter-solid crypo", crypto)
+// see https://www.npmjs.com/package/node-g
+
+
+let gitter, GITTER_TOKEN
+
+if (GITTER) {
+  GITTER_TOKEN = process.env.GITTER_TOKEN
+}
 const ns = solidNamespace($rdf)
 if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
-// see https://www.npmjs.com/package/node-gitter
 
+function initialiseMatrix() {
+  const sessionToken = 'syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD' // @@ tessti
+
+
+}
+
+function oldInitialiseMatrix() {
+  // Connect to your Matrix endpoint:
+  const baseUrl = 'https://matrix.org/_matrix';
+  const matrix  = new Matrix(baseUrl);
+
+  // Open the login popup, targetting the url from the first step:
+  // const redirectUrl = location.origin + '/accept-sso'; // MATRIX_APP_ORIGIN
+  const redirectUrl = MATRIX_APP_ORIGIN + '/accept-sso'; // MATRIX_APP_ORIGIN
+
+  matrix.initSso(redirectUrl);
+
+  // ... and wait for the user to log in:
+  matrix.addEventListener('logged-in', event => {
+
+  	console.log('Logged in!', event);
+
+  	// Start polling the server
+  	matrix.listenForServerEvents();
+
+  	// Act on events of only one type:
+  	matrix.addEventListener('m.room.message', event => console.log('Matrix Message:', event));
+
+  	// Act on events of another type:
+  	matrix.addEventListener('m.reaction', event => console.log('Matrix Reaction:', event));
+
+  	// Act on ALL events from the server:
+  	matrix.addEventListener('matrix-event', event => console.log('Matrix Event:', event));
+
+  });
+}
 
 async function init() {
   if(!command) {
@@ -44,10 +112,16 @@ async function init() {
   if(!targetRoomName) {
     targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
   }
-  if (!GITTER_TOKEN) {
-    GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+  if (GITTER) {
+    if (!GITTER_TOKEN) {
+      GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+    }
+    gitter = new Gitter(GITTER_TOKEN)
+
   }
-  gitter = new Gitter(GITTER_TOKEN)
+  if (MATRIX) {
+    initialiseMatrix()
+  }
 }
 
 
@@ -715,23 +789,48 @@ async function loadConfig () {
   return gitterConfig
 }
 
+//////////////////////////////////////////////////////////////////
 async function go () {
   await init();
   var oneToOnes = []
   var privateRooms = []
   var publicRooms = []
   var usernameIndex = {}
-  console.log(`Logging into gitter room ${targetRoomName} ...`)
-  var user
-  try {
-    user = await gitter.currentUser()
-  } catch (err) {
-    console.log('Crashed logging into gitter: ' + err)
-    process.exit(3)
+  if (GITTER) {
+    console.log(`Logging into gitter room ${targetRoomName} ...`)
+    var user
+    try {
+      user = await gitter.currentUser()
+    } catch (err) {
+      console.log('Crashed logging into gitter: ' + err)
+      process.exit(3)
+    }
+    console.log('You are logged into gitter as:', user.username)
+    var rooms = await user.rooms()
+  } else {
+    // const matrixClient = sdk.createClient({ baseUrl: "https://matrix.org" });
+    const matrixClient = sdk.createClient({
+        baseUrl: "http://matrix.org",
+        accessToken: myAccessToken,
+        userId: myUserId,
+    });
+
+    const rooms = matrixClient.getRooms();
+
+    // const allPublicRooms = await matrixClient.publicRooms() // ,"total_room_count_estimate":80707
+    // console.log('rooms.total_room_count_estimate ',  rooms.total_room_count_estimate) //
+    console.log('rooms 2 ',  JSON.stringify(rooms)) //
+
+    // function (err, data) {
+    //     console.log("Public Rooms: %s", JSON.stringify(data));
+    // });
   }
-  console.log('You are logged into gitter as:', user.username)
-  var rooms = await user.rooms()
+
   console.log('rooms ' + rooms.length)
+
+  console.log('@ testing exit ')
+  process.exit()
+
   var roomIndex = {}
   for (let r = 0; r < rooms.length; r++) {
     var room = rooms[r]

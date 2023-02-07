@@ -21,6 +21,10 @@ import solidNamespace from "solid-namespace"
 import * as Gitter from 'node-gitter'
 import { SolidNodeClient } from 'solid-node-client'
 import * as  readlineSync from 'readline-sync'
+import * as readline from 'readline'
+
+var matrixUserId = "@timbllee:matrix.org";
+var matrixAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
 
 
 dotenv.config()
@@ -28,6 +32,7 @@ dotenv.config()
 /* SILENCE FETCH_QUEUE ERRORS
      see https://github.com/linkeddata/rdflib.js/issues/461
 */
+/*
 console.log = (...msgs)=>{
   for(var m of msgs){
     m = m.toString()
@@ -36,7 +41,7 @@ console.log = (...msgs)=>{
     }
   }
 }
-
+*/
 const command = process.argv[2]
 const targetRoomName = process.argv[3]
 const archiveBaseURI = process.argv[4]
@@ -44,17 +49,27 @@ const archiveBaseURI = process.argv[4]
 const GITTER = false
 const MATRIX = true
 
+const numMessagesToShow = 20
+let matrixClient = null
+
+
+var rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    // completer: completer,
+});
+
 
 // const MATRIX_APP_ORIGIN = 'timbl.com' // or makybe a solidcommmunity pod
 
 if (typeof crypto === 'undefined') {
   var crypto = myCrypto
-  console.log("gitter-solid local crypo", crypto)
+  // console.log("gitter-solid local crypo", crypto)
   global.crypto = myCrypto
 } else {
-  console.log("gitter-solid  global crypo", crypto)
+  // console.log("gitter-solid  global crypo", crypto)
 }
-console.log("gitter-solid crypo", crypto)
+// console.log("gitter-solid crypo", crypto)
 // see https://www.npmjs.com/package/node-g
 
 
@@ -68,11 +83,198 @@ if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
 
-function initialiseMatrix() {
-  const sessionToken = 'syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD' // @@ tessti
+///////////// MATRIX /////////////////
+
+const MESSAGES_AT_A_TIME = 20 // make biggers
+
+let roomList = []
 
 
+function setRoomList() {
+    roomList = matrixClient.getRooms();
+    console.log('   setRoomList ' + show(roomList))
+    roomList.sort(function (a, b) {
+        // < 0 = a comes first (lower index) - we want high indexes = newer
+        var aMsg = a.timeline[a.timeline.length - 1];
+        if (!aMsg) {
+            return -1;
+        }
+        var bMsg = b.timeline[b.timeline.length - 1];
+        if (!bMsg) {
+            return 1;
+        }
+        if (aMsg.getTs() > bMsg.getTs()) {
+            return 1;
+        } else if (aMsg.getTs() < bMsg.getTs()) {
+            return -1;
+        }
+        return 0;
+    });
 }
+
+
+function showRoom (room) {
+    var msg = room.timeline[room.timeline.length - 1];
+    var dateStr = "---";
+    if (msg) {
+        dateStr = new Date(msg.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
+    }
+    var myMembership = room.getMyMembership();
+    const star = myMembership ? '*' : ' '
+    var roomName = room.name
+    return ` ${roomName} %s (${room.getJoinedMembers().length} members)${star}  ${dateStr}`
+}
+
+function printRoomList() {
+    // console.log(CLEAR_CONSOLE);
+    console.log("Room List:");
+    for (let i = 0; i < roomList.length; i++) {
+        console.log(showRoom(room))
+    }
+}
+
+function short (x) {
+    if (x === null) return 'null'
+    if (!x || typeof x !== 'object') return '*';
+    if (x.length) return `[${x.length}]`;
+    return `{${Object.keys(x).length}}`;
+}
+function show (x) {
+    if (x === null || x === undefined) return ' - '
+    const typ = typeof x
+    switch (typ) {
+        case 'null':
+        case 'undefined': return 'x'
+        case 'string': return `"${x}"`
+        case 'boolean':
+        case 'number': return x.toString()
+        case  'object':
+            if (x.length) return '[' + x.slice(0, 3).map(show).join(', ') + ']'
+            return '{' + Object.keys(x).slice(0,3).map(k => ` ${k}: ${short(x[k])}`).join('; ') + '}'
+
+        default: return `Type ${typ} ??`
+    }
+}
+
+function showMessage (event, myUserId) {
+    var name = event.sender ? event.sender.name : event.getSender();
+    var time = new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
+    var separator = "<<<";
+    if (event.getSender() === myUserId) {
+        name = "Me";
+        separator = ">>>";
+        if (event.status === sdk.EventStatus.SENDING) {
+            separator = "...";
+        } else if (event.status === sdk.EventStatus.NOT_SENT) {
+            separator = " x ";
+        }
+    }
+    var body = "";
+
+    var maxNameWidth = 15;
+    if (name.length > maxNameWidth) {
+        name = name.slice(0, maxNameWidth - 1) + "\u2026";
+    }
+
+    if (event.getType() === "m.room.message") {
+        body = event.getContent().body;
+    } else if (event.isState()) {
+        var stateName = event.getType();
+        if (event.getStateKey().length > 0) {
+            stateName += " (" + event.getStateKey() + ")";
+        }
+        body = "[State: " + stateName + " updated to: " + JSON.stringify(event.getContent()) + "]";
+        separator = "---";
+    } else {
+        // random message event
+        body = "[Message: " + event.getType() + " Content: " + JSON.stringify(event.getContent()) + "]";
+        separator = "---";
+    }
+    return `[${time}] ${name}: ${separator}; ${body}`
+}
+
+function loadRoomMessages (room) {
+    console.log(`loadRoomMessages: room name ${room.name}`)
+    // console.log(show(room))
+    matrixClient.scrollback(room, MESSAGES_AT_A_TIME).then(
+        function (room) {
+            const mostRecentMessages = room.timeline;
+            for (var i = 0; i < mostRecentMessages.length; i++) {
+                console.log(showMessage(mostRecentMessages[i], room.myUserId));
+            }
+            rl.prompt();
+        },
+        function (err) {
+            console.error("loadRoomMessages ##### Error: %s", err);
+        },
+    );
+}
+
+async function processRooms () {
+    for (let i = 0; i < roomList.length; i++) {
+        const room = roomList[i]
+        console.log(`\n Room "${i}": <${room.roomId}> ${showRoom(room)}`)
+        console.log(`    timeline(${room.timeline.length}`)
+        // console.log(JSON.stringify(room))
+
+        var myMembership = room.getMyMembership();
+        console.log('myMembership ' + (show(myMembership)))
+
+        for (let i = 0; i < room.timeline.length; i++) {
+            const timeline = room.timeline[i]
+            console.log(`  timeline status ${timeline.status}`)
+            if (room.timeline[i].status == sdk.EventStatus.NOT_SENT) {
+                notSentEvent = room.timeline[i];
+                break;
+            }
+        }
+
+        for (let prop in room) {
+            const typ = typeof room[prop]
+            console.log(`   ${prop}: ${show(room[prop])}`) // ${room[prop]}
+        }
+        loadRoomMessages(room)
+    }
+}
+
+async function initialiseMatrix() {
+
+  matrixClient = sdk.createClient({
+      baseUrl: "http://matrix.org",
+      accessToken: matrixAccessToken,
+      userId: matrixUserId,
+  });
+
+  const client = matrixClient
+  await client.startClient({ initialSyncLimit: 10 });
+
+
+  client.once("sync", async function (state, prevState, res) {
+      if (state === "PREPARED") {
+          console.log("prepared");
+          await processRooms()
+      } else {
+          console.log('Fatal Error:  state not prepared: ' + state);
+          // console.log(state);
+          process.exit(1);
+      }
+  });
+
+  matrixClient.startClient(numMessagesToShow); // messages for each room.
+
+  roomList = matrixClient.getRooms();
+
+  // const allPublicRooms = await matrixClient.publicRooms() // ,"total_room_count_estimate":80707
+  // console.log('rooms.total_room_count_estimate ',  rooms.total_room_count_estimate) //
+
+  console.log('getRooms  ' + JSON.stringify(roomList)) //
+
+
+  matrixClient.on("Room", function () {
+      setRoomList();
+      console.log('on Room room list: ' + roomList.length + ' rooms')
+  });
+ }
 
 function oldInitialiseMatrix() {
   // Connect to your Matrix endpoint:
@@ -120,7 +322,7 @@ async function init() {
 
   }
   if (MATRIX) {
-    initialiseMatrix()
+    await initialiseMatrix()
   }
 }
 
@@ -305,6 +507,8 @@ async function saveEverythingBack () {
   // console.log('Saved all modified files.')
   toBePut = []
 }
+
+///////////////// GITTER ONLY
 
 async function authorFromGitter (fromUser, archiveBaseURI) {
   /* fromUser looks like
@@ -765,7 +969,7 @@ async function loadConfig () {
   }
   console.log('Have gitter config ✅')
 
-  for (var opt of opts) {
+  for (let opt of opts) {
     var x = kb.any(me, ns.solid(opt))
     console.log(` Config option ${opt}: "${x}"`)
     if (x && x.uri) {
@@ -796,6 +1000,7 @@ async function go () {
   var privateRooms = []
   var publicRooms = []
   var usernameIndex = {}
+  let rooms = []
   if (GITTER) {
     console.log(`Logging into gitter room ${targetRoomName} ...`)
     var user
@@ -806,20 +1011,8 @@ async function go () {
       process.exit(3)
     }
     console.log('You are logged into gitter as:', user.username)
-    var rooms = await user.rooms()
+    rooms = await user.rooms()
   } else {
-    // const matrixClient = sdk.createClient({ baseUrl: "https://matrix.org" });
-    const matrixClient = sdk.createClient({
-        baseUrl: "http://matrix.org",
-        accessToken: myAccessToken,
-        userId: myUserId,
-    });
-
-    const rooms = matrixClient.getRooms();
-
-    // const allPublicRooms = await matrixClient.publicRooms() // ,"total_room_count_estimate":80707
-    // console.log('rooms.total_room_count_estimate ',  rooms.total_room_count_estimate) //
-    console.log('rooms 2 ',  JSON.stringify(rooms)) //
 
     // function (err, data) {
     //     console.log("Public Rooms: %s", JSON.stringify(data));
@@ -827,6 +1020,12 @@ async function go () {
   }
 
   console.log('rooms ' + rooms.length)
+
+  rl.setPrompt("> ");
+  rl.on("line", function (line) {})
+  matrixClient.startClient(numMessagesToShow); // messages for each room.
+
+  return
 
   console.log('@ testing exit ')
   process.exit()

@@ -1,7 +1,8 @@
 var myUserId = "@timbllee:matrix.org";
 var myAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
-var sdk = require("matrix-js-sdk");
-var clc = require("cli-color");
+import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-sdk
+import clc from "cli-color"
+import * as readline from 'readline'
 
 var matrixClient = sdk.createClient({
     baseUrl: "http://matrix.org",
@@ -15,14 +16,15 @@ var viewingRoom = null;
 var numMessagesToShow = 20;
 
 // Reading from stdin
-var CLEAR_CONSOLE = "\x1B[2J";
-var readline = require("readline");
+var CLEAR_CONSOLE = "\n______________________\n" // "\x1B[2J";
+
+// var readline = require("readline");
 var rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     completer: completer,
 });
-rl.setPrompt("$ ");
+rl.setPrompt("> ");
 rl.on("line", function (line) {
     if (line.trim().length === 0) {
         rl.prompt();
@@ -118,6 +120,7 @@ rl.on("line", function (line) {
             viewingRoom = roomList[roomIndex];
             if (viewingRoom.getMember(myUserId).membership === "invite") {
                 // join the room first
+                console.log('@@  Room to be joined: ' + JSON.stringify(viewingRoom.roomId))
                 matrixClient.joinRoom(viewingRoom.roomId).then(
                     function (room) {
                         setRoomList();
@@ -143,6 +146,7 @@ matrixClient.on("sync", function (state, prevState, data) {
     switch (state) {
         case "PREPARED":
             setRoomList();
+            console.log('on sync: state: ' + state)
             printRoomList();
             printHelp();
             rl.prompt();
@@ -153,13 +157,15 @@ matrixClient.on("sync", function (state, prevState, data) {
 matrixClient.on("Room", function () {
     setRoomList();
     if (!viewingRoom) {
+      console.log('on Room print room list')
+
         printRoomList();
         rl.prompt();
     }
 });
 
 // print incoming messages.
-matrixClient.on("Room.timeline", function (event, room, toStartOfTimeline) {
+matrixClient.on("Room.room.", function (event, room, toStartOfTimeline) {
     if (toStartOfTimeline) {
         return; // don't print paginated results
     }
@@ -234,7 +240,7 @@ function printHelp() {
     print("  '/roominfo' Display room info e.g. name, topic.", clc.white);
 }
 
-function a    (line) {
+function completer(line) {
     var completions = ["/help", "/join ", "/exit", "/members", "/more ", "/resend", "/invite"];
     var hits = completions.filter(function (c) {
         return c.indexOf(line) == 0;

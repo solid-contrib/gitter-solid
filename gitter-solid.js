@@ -23,11 +23,13 @@ import { SolidNodeClient } from 'solid-node-client'
 import * as  readlineSync from 'readline-sync'
 import * as readline from 'readline'
 
-var matrixUserId = "@timbllee:matrix.org";
-var matrixAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
-
-
 dotenv.config()
+
+const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
+const matrixAccessToken = process.env.MATRIX_ACCESS_TOKEN || "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
+const matrixBaseUrl = process.env.MATRIX_BASE_URL || "http://matrix.org";
+
+
 
 /* SILENCE FETCH_QUEUE ERRORS
      see https://github.com/linkeddata/rdflib.js/issues/461
@@ -42,8 +44,8 @@ console.log = (...msgs)=>{
   }
 }
 */
-const command = process.argv[2]
-const targetRoomName = process.argv[3]
+let command = process.argv[2]
+let targetRoomName = process.argv[3]
 const archiveBaseURI = process.argv[4]
 
 const GITTER = false
@@ -238,9 +240,9 @@ async function processRooms () {
 }
 
 async function initialiseMatrix() {
-
+  console.log(matrixAccessToken)
   matrixClient = sdk.createClient({
-      baseUrl: "http://matrix.org",
+      baseUrl: matrixBaseUrl,
       accessToken: matrixAccessToken,
       userId: matrixUserId,
   });

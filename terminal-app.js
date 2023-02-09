@@ -1,13 +1,20 @@
-var myUserId = "@timbllee:matrix.org";
-var myAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
 import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-sdk
 import clc from "cli-color"
 import * as readline from 'readline'
+import * as dotenv from 'dotenv';
+
+dotenv.config();
+
+const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
+const matrixAccessToken = process.env.MATRIX_ACCESS_TOKEN || "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
+const matrixBaseUrl = process.env.MATRIX_BASE_URL || "http://matrix.org";
+
+
 
 var matrixClient = sdk.createClient({
-    baseUrl: "http://matrix.org",
-    accessToken: myAccessToken,
-    userId: myUserId,
+    baseUrl: matrixBaseUrl,
+    accessToken: matrixAccessToken,
+    userId: matrixUserId,
 });
 
 // Data structures
@@ -118,7 +125,7 @@ rl.on("line", function (line) {
         if (line.indexOf("/join ") === 0) {
             var roomIndex = line.split(" ")[1];
             viewingRoom = roomList[roomIndex];
-            if (viewingRoom.getMember(myUserId).membership === "invite") {
+            if (viewingRoom.getMember(matrixUserId).membership === "invite") {
                 // join the room first
                 console.log('@@  Room to be joined: ' + JSON.stringify(viewingRoom.roomId))
                 matrixClient.joinRoom(viewingRoom.roomId).then(
@@ -295,7 +302,7 @@ function printMemberList(room) {
             "%s" + fmt(" :: ") + "%s" + fmt(" (") + "%s" + fmt(")"),
             membershipWithPadding,
             member.name,
-            member.userId === myUserId ? "Me" : member.userId,
+            member.userId === matrixUserId ? "Me" : member.userId,
             fmt,
         );
     });
@@ -332,7 +339,7 @@ function printLine(event) {
     var name = event.sender ? event.sender.name : event.getSender();
     var time = new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
     var separator = "<<<";
-    if (event.getSender() === myUserId) {
+    if (event.getSender() === matrixUserId) {
         name = "Me";
         separator = ">>>";
         if (event.status === sdk.EventStatus.SENDING) {

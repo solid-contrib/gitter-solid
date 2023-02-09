@@ -3,6 +3,8 @@ import clc from "cli-color"
 import * as readline from 'readline'
 import * as dotenv from 'dotenv';
 
+import { setRoomList } from './src/matrix-utils.mjs'
+
 dotenv.config();
 
 const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
@@ -130,7 +132,7 @@ rl.on("line", function (line) {
                 console.log('@@  Room to be joined: ' + JSON.stringify(viewingRoom.roomId))
                 matrixClient.joinRoom(viewingRoom.roomId).then(
                     function (room) {
-                        setRoomList();
+                        roomList = setRoomList(matrixClient);
                         viewingRoom = room;
                         printMessages();
                         rl.prompt();
@@ -152,7 +154,7 @@ rl.on("line", function (line) {
 matrixClient.on("sync", function (state, prevState, data) {
     switch (state) {
         case "PREPARED":
-            setRoomList();
+            roomList = setRoomList(matrixClient);
             console.log('on sync: state: ' + state)
             printRoomList();
             printHelp();
@@ -162,7 +164,7 @@ matrixClient.on("sync", function (state, prevState, data) {
 });
 
 matrixClient.on("Room", function () {
-    setRoomList();
+    roomList = setRoomList(matrixClient);
     if (!viewingRoom) {
       console.log('on Room print room list')
 
@@ -182,26 +184,7 @@ matrixClient.on("Room.room.", function (event, room, toStartOfTimeline) {
     printLine(event);
 });
 
-function setRoomList() {
-    roomList = matrixClient.getRooms();
-    roomList.sort(function (a, b) {
-        // < 0 = a comes first (lower index) - we want high indexes = newer
-        var aMsg = a.timeline[a.timeline.length - 1];
-        if (!aMsg) {
-            return -1;
-        }
-        var bMsg = b.timeline[b.timeline.length - 1];
-        if (!bMsg) {
-            return 1;
-        }
-        if (aMsg.getTs() > bMsg.getTs()) {
-            return 1;
-        } else if (aMsg.getTs() < bMsg.getTs()) {
-            return -1;
-        }
-        return 0;
-    });
-}
+
 
 function printRoomList() {
     print(CLEAR_CONSOLE);

@@ -318,20 +318,20 @@ function printRoomInfo(room) {
     var contentHeader = padSide + "Content" + padSide;
     print(eTypeHeader + sendHeader + contentHeader);
     print(new Array(100).join("-"));
-    eventMap.keys().forEach(function (eventType) {
+    for (let eventType of eventMap.keys()) { 
         if (eventType === "m.room.member") {
-            return;
+            continue;
         } // use /members instead.
         var eventEventMap = eventMap.get(eventType);
-        eventEventMap.keys().forEach(function (stateKey) {
+        for (let stateKey of eventEventMap.keys()) {
             var typeAndKey = eventType + (stateKey.length > 0 ? "(" + stateKey + ")" : "");
             var typeStr = fixWidth(typeAndKey, eTypeHeader.length);
             var event = eventEventMap.get(stateKey);
             var sendStr = fixWidth(event.getSender(), sendHeader.length);
             var contentStr = fixWidth(JSON.stringify(event.getContent()), contentHeader.length);
             print(typeStr + " | " + sendStr + " | " + contentStr);
-        });
-    });
+        };
+    };
 }
 
 function printLine(event) {

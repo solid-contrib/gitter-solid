@@ -11,11 +11,16 @@ analysis tools on top of your gitter chat data? Maybe you should be using this s
 
 
 ## Usage
+The variables referenced in this section can be configured through any of the following:
+- (When using the terminal script) providing them when prompted
+- Using `export` directly in your shell
+- Creating a .env file (see [.env.example](.env.example))
+
 ### Solid access
 
 If you will be storing your chats on the local filesystem, you don't need Solid access.
 
-If you will be storing your chats on a Solid Pod (either local or remote), you will need to provide login credentials to give your script write access.   You can export enviornoment variables (SOLID_IDP, SOLID_USERNAME, SOLID_PASSWORD) or let the script prompt you for the values if the environment variables are not found.
+If you will be storing your chats on a Solid Pod (either local or remote), you will need to provide login credentials to give your script write access.   You can export environment variables (SOLID_IDP, SOLID_USERNAME, SOLID_PASSWORD) or let the script prompt you for the values if the environment variables are not found.
 
 ### Gitter access
 
@@ -35,6 +40,10 @@ node gitter-solid.js   list
 
 Once you have set your shell session up with the gitter token,
 you can use gitter-solid repeatedly.
+
+### Matrix Access
+
+To access Matrix (or Gitter using the Matrix API), you can optionally  configure MATRIX_USER_ID, MATRIX_ACCESS_TOKEN & MATRIX_BASE_URL (defaults to http://matrix.org). To get an access token, you can follow the [instructions here](https://t2bot.io/docs/access_tokens/).
 
 ## Gitter rooms
 

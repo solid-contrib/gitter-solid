@@ -1,13 +1,22 @@
-var myUserId = "@timbllee:matrix.org";
-var myAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
 import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-sdk
 import clc from "cli-color"
 import * as readline from 'readline'
+import * as dotenv from 'dotenv';
+
+import { setRoomList } from './src/matrix-utils.mjs'
+
+dotenv.config();
+
+const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
+const matrixAccessToken = process.env.MATRIX_ACCESS_TOKEN || "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
+const matrixBaseUrl = process.env.MATRIX_BASE_URL || "http://matrix.org";
+
+
 
 var matrixClient = sdk.createClient({
-    baseUrl: "http://matrix.org",
-    accessToken: myAccessToken,
-    userId: myUserId,
+    baseUrl: matrixBaseUrl,
+    accessToken: matrixAccessToken,
+    userId: matrixUserId,
 });
 
 // Data structures
@@ -118,12 +127,12 @@ rl.on("line", function (line) {
         if (line.indexOf("/join ") === 0) {
             var roomIndex = line.split(" ")[1];
             viewingRoom = roomList[roomIndex];
-            if (viewingRoom.getMember(myUserId).membership === "invite") {
+            if (viewingRoom.getMember(matrixUserId).membership === "invite") {
                 // join the room first
                 console.log('@@  Room to be joined: ' + JSON.stringify(viewingRoom.roomId))
                 matrixClient.joinRoom(viewingRoom.roomId).then(
                     function (room) {
-                        setRoomList();
+                        roomList = setRoomList(matrixClient);
                         viewingRoom = room;
                         printMessages();
                         rl.prompt();
@@ -145,7 +154,7 @@ rl.on("line", function (line) {
 matrixClient.on("sync", function (state, prevState, data) {
     switch (state) {
         case "PREPARED":
-            setRoomList();
+            roomList = setRoomList(matrixClient);
             console.log('on sync: state: ' + state)
             printRoomList();
             printHelp();
@@ -155,7 +164,7 @@ matrixClient.on("sync", function (state, prevState, data) {
 });
 
 matrixClient.on("Room", function () {
-    setRoomList();
+    roomList = setRoomList(matrixClient);
     if (!viewingRoom) {
       console.log('on Room print room list')
 
@@ -175,26 +184,7 @@ matrixClient.on("Room.room.", function (event, room, toStartOfTimeline) {
     printLine(event);
 });
 
-function setRoomList() {
-    roomList = matrixClient.getRooms();
-    roomList.sort(function (a, b) {
-        // < 0 = a comes first (lower index) - we want high indexes = newer
-        var aMsg = a.timeline[a.timeline.length - 1];
-        if (!aMsg) {
-            return -1;
-        }
-        var bMsg = b.timeline[b.timeline.length - 1];
-        if (!bMsg) {
-            return 1;
-        }
-        if (aMsg.getTs() > bMsg.getTs()) {
-            return 1;
-        } else if (aMsg.getTs() < bMsg.getTs()) {
-            return -1;
-        }
-        return 0;
-    });
-}
+
 
 function printRoomList() {
     print(CLEAR_CONSOLE);
@@ -295,7 +285,7 @@ function printMemberList(room) {
             "%s" + fmt(" :: ") + "%s" + fmt(" (") + "%s" + fmt(")"),
             membershipWithPadding,
             member.name,
-            member.userId === myUserId ? "Me" : member.userId,
+            member.userId === matrixUserId ? "Me" : member.userId,
             fmt,
         );
     });
@@ -311,20 +301,20 @@ function printRoomInfo(room) {
     var contentHeader = padSide + "Content" + padSide;
     print(eTypeHeader + sendHeader + contentHeader);
     print(new Array(100).join("-"));
-    eventMap.keys().forEach(function (eventType) {
+    for (let eventType of eventMap.keys()) { 
         if (eventType === "m.room.member") {
-            return;
+            continue;
         } // use /members instead.
         var eventEventMap = eventMap.get(eventType);
-        eventEventMap.keys().forEach(function (stateKey) {
+        for (let stateKey of eventEventMap.keys()) {
             var typeAndKey = eventType + (stateKey.length > 0 ? "(" + stateKey + ")" : "");
             var typeStr = fixWidth(typeAndKey, eTypeHeader.length);
             var event = eventEventMap.get(stateKey);
             var sendStr = fixWidth(event.getSender(), sendHeader.length);
             var contentStr = fixWidth(JSON.stringify(event.getContent()), contentHeader.length);
             print(typeStr + " | " + sendStr + " | " + contentStr);
-        });
-    });
+        };
+    };
 }
 
 function printLine(event) {
@@ -332,7 +322,7 @@ function printLine(event) {
     var name = event.sender ? event.sender.name : event.getSender();
     var time = new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
     var separator = "<<<";
-    if (event.getSender() === myUserId) {
+    if (event.getSender() === matrixUserId) {
         name = "Me";
         separator = ">>>";
         if (event.status === sdk.EventStatus.SENDING) {

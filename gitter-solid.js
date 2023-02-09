@@ -23,11 +23,16 @@ import { SolidNodeClient } from 'solid-node-client'
 import * as  readlineSync from 'readline-sync'
 import * as readline from 'readline'
 
-var matrixUserId = "@timbllee:matrix.org";
-var matrixAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
-
+import { show } from "./src/utils.mjs"
+import { setRoomList } from "./src/matrix-utils.mjs";
 
 dotenv.config()
+
+const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
+const matrixAccessToken = process.env.MATRIX_ACCESS_TOKEN || "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
+const matrixBaseUrl = process.env.MATRIX_BASE_URL || "http://matrix.org";
+
+
 
 /* SILENCE FETCH_QUEUE ERRORS
      see https://github.com/linkeddata/rdflib.js/issues/461
@@ -42,8 +47,8 @@ console.log = (...msgs)=>{
   }
 }
 */
-const command = process.argv[2]
-const targetRoomName = process.argv[3]
+let command = process.argv[2]
+let targetRoomName = process.argv[3]
 const archiveBaseURI = process.argv[4]
 
 const GITTER = false
@@ -52,13 +57,14 @@ const MATRIX = true
 const numMessagesToShow = 20
 let matrixClient = null
 
-
-var rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    // completer: completer,
-});
-
+// If this is run on startup, readline-sync will not work
+function initReadlineAsync() {
+  return readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      // completer: completer,
+  });
+}
 
 // const MATRIX_APP_ORIGIN = 'timbl.com' // or makybe a solidcommmunity pod
 
@@ -90,28 +96,6 @@ const MESSAGES_AT_A_TIME = 20 // make biggers
 let roomList = []
 
 
-function setRoomList() {
-    roomList = matrixClient.getRooms();
-    console.log('   setRoomList ' + show(roomList))
-    roomList.sort(function (a, b) {
-        // < 0 = a comes first (lower index) - we want high indexes = newer
-        var aMsg = a.timeline[a.timeline.length - 1];
-        if (!aMsg) {
-            return -1;
-        }
-        var bMsg = b.timeline[b.timeline.length - 1];
-        if (!bMsg) {
-            return 1;
-        }
-        if (aMsg.getTs() > bMsg.getTs()) {
-            return 1;
-        } else if (aMsg.getTs() < bMsg.getTs()) {
-            return -1;
-        }
-        return 0;
-    });
-}
-
 
 function showRoom (room) {
     var msg = room.timeline[room.timeline.length - 1];
@@ -130,29 +114,6 @@ function printRoomList() {
     console.log("Room List:");
     for (let i = 0; i < roomList.length; i++) {
         console.log(showRoom(room))
-    }
-}
-
-function short (x) {
-    if (x === null) return 'null'
-    if (!x || typeof x !== 'object') return '*';
-    if (x.length) return `[${x.length}]`;
-    return `{${Object.keys(x).length}}`;
-}
-function show (x) {
-    if (x === null || x === undefined) return ' - '
-    const typ = typeof x
-    switch (typ) {
-        case 'null':
-        case 'undefined': return 'x'
-        case 'string': return `"${x}"`
-        case 'boolean':
-        case 'number': return x.toString()
-        case  'object':
-            if (x.length) return '[' + x.slice(0, 3).map(show).join(', ') + ']'
-            return '{' + Object.keys(x).slice(0,3).map(k => ` ${k}: ${short(x[k])}`).join('; ') + '}'
-
-        default: return `Type ${typ} ??`
     }
 }
 
@@ -202,6 +163,7 @@ function loadRoomMessages (room) {
             for (var i = 0; i < mostRecentMessages.length; i++) {
                 console.log(showMessage(mostRecentMessages[i], room.myUserId));
             }
+            let rl = initReadlineAsync();
             rl.prompt();
         },
         function (err) {
@@ -237,10 +199,10 @@ async function processRooms () {
     }
 }
 
-async function initialiseMatrix() {
-
+async function initialiseMatrix(callback) {
+  console.log(matrixAccessToken)
   matrixClient = sdk.createClient({
-      baseUrl: "http://matrix.org",
+      baseUrl: matrixBaseUrl,
       accessToken: matrixAccessToken,
       userId: matrixUserId,
   });
@@ -269,11 +231,17 @@ async function initialiseMatrix() {
 
   console.log('getRooms  ' + JSON.stringify(roomList)) //
 
-
+  
+  /**
+   * It takes a second for all rooms to load on startup.
+   * This promise solution is all but elegant, but it works for now at least
+   */
   matrixClient.on("Room", function () {
-      setRoomList();
+      roomList = setRoomList(matrixClient);
       console.log('on Room room list: ' + roomList.length + ' rooms')
   });
+  console.log("Loading rooms...")
+  await new Promise(resolve => setTimeout(resolve, 5000))
  }
 
 function oldInitialiseMatrix() {
@@ -309,14 +277,14 @@ function oldInitialiseMatrix() {
 
 async function init() {
   if(!command) {
-    command = await readlineSync.question('Command (e.g. create) : ');
+    command = readlineSync.question('Command (e.g. create) : ');
   }
   if(!targetRoomName) {
-    targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
+    targetRoomName = readlineSync.question('Gitter Room (e.g. solid/chat) : ');
   }
   if (GITTER) {
     if (!GITTER_TOKEN) {
-      GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+      GITTER_TOKEN = readlineSync.question('Gitter Token : ');
     }
     gitter = new Gitter(GITTER_TOKEN)
 
@@ -697,7 +665,7 @@ async function doRoom (room, config) {
     return earliest.id
   }
 
-  async function show () {
+  async function doRoomShow () {
     let name = room.oneToOne ? '@' + room.user.username : room.name
     console.log(`     ${room.githubType}: ${name}`)
   }
@@ -863,7 +831,7 @@ async function doRoom (room, config) {
   }
   // Body of doRoom
   if (command === 'show') {
-    await show()
+    await doRoomShow()
   } else if (command === 'details') {
       await details()
   } else if (command === 'archive') {
@@ -1019,11 +987,16 @@ async function go () {
     // });
   }
 
-  console.log('rooms ' + rooms.length)
+  if (MATRIX) {
+    rooms = setRoomList(matrixClient);
+  }
 
+  console.log('rooms -- ' + rooms.length)
+
+  let rl = initReadlineAsync();
   rl.setPrompt("> ");
   rl.on("line", function (line) {})
-  matrixClient.startClient(numMessagesToShow); // messages for each room.
+  //matrixClient.startClient(numMessagesToShow); // messages for each room.
 
   return
 

@@ -662,8 +662,9 @@ async function rdfDeleteMessage (chatChannel, payload) {
 /// /////////////////////////////  Do Room
 
 async function doRoom (room, config) {
-  console.log(room)
-  console.log(`\nDoing room ${room.id}:  ${room.name}`)
+  //console.log(room)
+  const roomId = room.id || room.roomId;
+  console.log(`\nDoing room ${roomId}:  ${room.name}`)
   // console.log('@@ bare room: ' + JSON.stringify(room))
   var gitterRoom;
   let archiveBaseURI;

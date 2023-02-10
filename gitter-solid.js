@@ -732,6 +732,10 @@ async function doRoom (room, config) {
           console.log("Currently gitter-solid only supports saving messages. Skipping " + matrixMessage.type)
           continue;
         }
+        if (!Message.matrixMessageHasContent(matrixMessage)) {
+          console.log("No content in message! Skipping.")
+          continue;
+        }
         let message = new Message(matrixMessage, true);
         await storeMessage(solidChannel, message, archiveBaseURI);
         messages.push(message);

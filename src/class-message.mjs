@@ -1,5 +1,9 @@
 // Class to convert Matrix & Gitter message objects into a standardised thing
 export default class Message {
+    static matrixMessageHasContent(messageObject) {
+        return (Object.keys(messageObject.content).length > 0);
+    }
+
   constructor (messageObject, matrix=true) {
     this.matrix = matrix;
     if (matrix) {
@@ -7,6 +11,8 @@ export default class Message {
         this.maker = messageObject.sender;
 
         console.log("--content--")
+        console.log(messageObject)
+        console.log(messageObject.content)
         this.content = messageObject.content.body;
         if (messageObject.content.formatted_body) {
             this.richContent = messageObject.content.formatted_body;
@@ -16,7 +22,11 @@ export default class Message {
         }
         // TODO implemenet relates_to and in_reply_to?
 
-        this.created = new Date(messageObject.age)
+        this.created = new Date();
+        this.created.setTime(this.created.getTime() - messageObject.age);
+        console.log("--date")
+        console.log(messageObject.age)
+        console.log(this.created);
         this.modified = null
 
 

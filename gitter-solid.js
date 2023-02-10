@@ -23,11 +23,17 @@ import { SolidNodeClient } from 'solid-node-client'
 import * as  readlineSync from 'readline-sync'
 import * as readline from 'readline'
 
-var matrixUserId = "@timbllee:matrix.org";
-var matrixAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
-
+import { show } from "./src/utils.mjs"
+import { setRoomList } from "./src/matrix-utils.mjs";
+import Message from "./src/class-message.mjs";
 
 dotenv.config()
+
+const matrixUserId = process.env.MATRIX_USER_ID || "@timbllee:matrix.org";
+const matrixAccessToken = process.env.MATRIX_ACCESS_TOKEN || "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
+const matrixBaseUrl = process.env.MATRIX_BASE_URL || "http://matrix.org";
+
+
 
 /* SILENCE FETCH_QUEUE ERRORS
      see https://github.com/linkeddata/rdflib.js/issues/461
@@ -42,8 +48,8 @@ console.log = (...msgs)=>{
   }
 }
 */
-const command = process.argv[2]
-const targetRoomName = process.argv[3]
+let command = process.argv[2]
+let targetRoomName = process.argv[3]
 const archiveBaseURI = process.argv[4]
 
 const GITTER = false
@@ -52,13 +58,14 @@ const MATRIX = true
 const numMessagesToShow = 20
 let matrixClient = null
 
-
-var rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    // completer: completer,
-});
-
+// If this is run on startup, readline-sync will not work
+function initReadlineAsync() {
+  return readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      // completer: completer,
+  });
+}
 
 // const MATRIX_APP_ORIGIN = 'timbl.com' // or makybe a solidcommmunity pod
 
@@ -90,30 +97,8 @@ const MESSAGES_AT_A_TIME = 20 // make biggers
 let roomList = []
 
 
-function setRoomList() {
-    roomList = matrixClient.getRooms();
-    console.log('   setRoomList ' + show(roomList))
-    roomList.sort(function (a, b) {
-        // < 0 = a comes first (lower index) - we want high indexes = newer
-        var aMsg = a.timeline[a.timeline.length - 1];
-        if (!aMsg) {
-            return -1;
-        }
-        var bMsg = b.timeline[b.timeline.length - 1];
-        if (!bMsg) {
-            return 1;
-        }
-        if (aMsg.getTs() > bMsg.getTs()) {
-            return 1;
-        } else if (aMsg.getTs() < bMsg.getTs()) {
-            return -1;
-        }
-        return 0;
-    });
-}
 
-
-function showRoom (room) {
+function matrixShowRoomString (room) {
     var msg = room.timeline[room.timeline.length - 1];
     var dateStr = "---";
     if (msg) {
@@ -125,38 +110,15 @@ function showRoom (room) {
     return ` ${roomName} %s (${room.getJoinedMembers().length} members)${star}  ${dateStr}`
 }
 
-function printRoomList() {
+function matrixPrintRoomList() {
     // console.log(CLEAR_CONSOLE);
     console.log("Room List:");
-    for (let i = 0; i < roomList.length; i++) {
-        console.log(showRoom(room))
-    }
+    roomList.forEach((room) => {
+      console.log(matrixShowRoomString(room));
+    });
 }
 
-function short (x) {
-    if (x === null) return 'null'
-    if (!x || typeof x !== 'object') return '*';
-    if (x.length) return `[${x.length}]`;
-    return `{${Object.keys(x).length}}`;
-}
-function show (x) {
-    if (x === null || x === undefined) return ' - '
-    const typ = typeof x
-    switch (typ) {
-        case 'null':
-        case 'undefined': return 'x'
-        case 'string': return `"${x}"`
-        case 'boolean':
-        case 'number': return x.toString()
-        case  'object':
-            if (x.length) return '[' + x.slice(0, 3).map(show).join(', ') + ']'
-            return '{' + Object.keys(x).slice(0,3).map(k => ` ${k}: ${short(x[k])}`).join('; ') + '}'
-
-        default: return `Type ${typ} ??`
-    }
-}
-
-function showMessage (event, myUserId) {
+function matrixShowMessage (event, myUserId) {
     var name = event.sender ? event.sender.name : event.getSender();
     var time = new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
     var separator = "<<<";
@@ -193,16 +155,19 @@ function showMessage (event, myUserId) {
     return `[${time}] ${name}: ${separator}; ${body}`
 }
 
-function loadRoomMessages (room) {
+function matrixLoadRoomMessages (room) {
     console.log(`loadRoomMessages: room name ${room.name}`)
     // console.log(show(room))
     matrixClient.scrollback(room, MESSAGES_AT_A_TIME).then(
         function (room) {
             const mostRecentMessages = room.timeline;
             for (var i = 0; i < mostRecentMessages.length; i++) {
-                console.log(showMessage(mostRecentMessages[i], room.myUserId));
+                console.log(matrixShowMessage(mostRecentMessages[i], room.myUserId));
             }
+            /*
+            let rl = initReadlineAsync();
             rl.prompt();
+            */
         },
         function (err) {
             console.error("loadRoomMessages ##### Error: %s", err);
@@ -210,10 +175,10 @@ function loadRoomMessages (room) {
     );
 }
 
-async function processRooms () {
+async function matrixProcessRooms () {
     for (let i = 0; i < roomList.length; i++) {
         const room = roomList[i]
-        console.log(`\n Room "${i}": <${room.roomId}> ${showRoom(room)}`)
+        console.log(`\n Room "${i}": <${room.roomId}> ${matrixShowRoomString(room)}`)
         console.log(`    timeline(${room.timeline.length}`)
         // console.log(JSON.stringify(room))
 
@@ -233,14 +198,14 @@ async function processRooms () {
             const typ = typeof room[prop]
             console.log(`   ${prop}: ${show(room[prop])}`) // ${room[prop]}
         }
-        loadRoomMessages(room)
+        matrixLoadRoomMessages(room)
     }
 }
 
-async function initialiseMatrix() {
-
+async function matrixInitialise() {
+  console.log(matrixAccessToken)
   matrixClient = sdk.createClient({
-      baseUrl: "http://matrix.org",
+      baseUrl: matrixBaseUrl,
       accessToken: matrixAccessToken,
       userId: matrixUserId,
   });
@@ -252,7 +217,7 @@ async function initialiseMatrix() {
   client.once("sync", async function (state, prevState, res) {
       if (state === "PREPARED") {
           console.log("prepared");
-          await processRooms()
+          await matrixProcessRooms()
       } else {
           console.log('Fatal Error:  state not prepared: ' + state);
           // console.log(state);
@@ -269,14 +234,20 @@ async function initialiseMatrix() {
 
   console.log('getRooms  ' + JSON.stringify(roomList)) //
 
-
+  
+  /**
+   * It takes a second for all rooms to load on startup.
+   * This promise solution is all but elegant, but it works for now at least
+   */
   matrixClient.on("Room", function () {
-      setRoomList();
+      roomList = setRoomList(matrixClient);
       console.log('on Room room list: ' + roomList.length + ' rooms')
   });
+  console.log("Loading rooms...")
+  await new Promise(resolve => setTimeout(resolve, 5000))
  }
 
-function oldInitialiseMatrix() {
+function matrixOldInitialise() {
   // Connect to your Matrix endpoint:
   const baseUrl = 'https://matrix.org/_matrix';
   const matrix  = new Matrix(baseUrl);
@@ -309,28 +280,34 @@ function oldInitialiseMatrix() {
 
 async function init() {
   if(!command) {
-    command = await readlineSync.question('Command (e.g. create) : ');
+    command = readlineSync.question('Command (e.g. create) : ');
   }
-  if(!targetRoomName) {
-    targetRoomName = await readlineSync.question('Gitter Room (e.g. solid/chat) : ');
+
+  // The script currently only supports Matrix using ALL
+  if (MATRIX) {
+    await matrixInitialise()
+    targetRoomName = "all";
   }
+
   if (GITTER) {
+    // Target room name will already be defined if Matrix is enabled
+    if(!targetRoomName) {
+      targetRoomName = readlineSync.question('Gitter Room (e.g. solid/chat) : ');
+    }
     if (!GITTER_TOKEN) {
-      GITTER_TOKEN = await readlineSync.question('Gitter Token : ');
+      GITTER_TOKEN = readlineSync.question('Gitter Token : ');
     }
     gitter = new Gitter(GITTER_TOKEN)
 
   }
-  if (MATRIX) {
-    await initialiseMatrix()
-  }
+
 }
 
 
 
-async function confirm (q) {
+function confirm (q) {
   while (1) {
-    var a = (await readlineSync.question(q+' (y/n)? ')).trim().toLowerCase();
+    var a = (readlineSync.question(q+' (y/n)? ')).trim().toLowerCase();
     if (a === 'yes' || a === 'y') return true
     if (a === 'no' || a === 'n') return false
     console.log('  Please reply y or n')
@@ -354,16 +331,16 @@ const auth = new SolidNodeClient({parser:$rdf})
 const fetcherOpts = {fetch: auth.fetch.bind(auth), timeout: 900000};
 
 const store = $rdf.graph()
-const kb = store // shorthand -- knowledge base
-const fetcher = $rdf.fetcher(kb, fetcherOpts)
-const updater = new $rdf.UpdateManager(kb)
+const rdfStore = store // shorthand -- knowledge base
+const fetcher = $rdf.fetcher(rdfStore, fetcherOpts)
+const updater = new $rdf.UpdateManager(rdfStore)
 
 function delayMs (ms) {
   console.log('pause ... ')
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function chatDocumentFromDate (chatChannel, date) {
+function rdfChatDocumentFromDate (chatChannel, date) {
   let isoDate = date.toISOString() // Like "2018-05-07T17:42:46.576Z"
   var path = isoDate.split('T')[0].replace(/-/g, '/') //  Like "2018/05/07"
   path = chatChannel.dir().uri + path + '/chat.ttl'
@@ -385,23 +362,28 @@ async function update (ddd, sts) {
 }
 */
 // individualChatFolder', 'privateChatFolder', 'publicChatFolder
-function archiveBaseURIFromGitterRoom (room, config) {
+function gitterArchiveBaseURIFromRoom (room, config) {
   const folder = room.oneToOne ? config.individualChatFolder
          : room.public ? config.publicChatFolder : config.privateChatFolder
   return (folder.uri) ? folder.uri : folder // needed if config newly created
+}
+
+function matrixArchiveBaseURIFromRoom(room, config) {
+  // TODO: implement different folders. Currently Matrix will just default to public
+  const folder = config.publicChatFolder;
+  return (folder.uri) ? folder.uri : folder;
 }
 
 /** Decide URI of solid chat vchanel from properties of gitter room
  *
  * @param room {Room} - like 'solid/chat'
 */
-function chatChannelFromGitterRoom (room, config) {
+function chatChannelFromRoom (room, config, archiveBaseURI) {
   var path
   let segment = room.name.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
   if (room.githubType === 'ORG') {
     segment += '/_Organization' // make all multi rooms two level names
   }
-  var archiveBaseURI = archiveBaseURIFromGitterRoom(room, config)
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
   if (room.oneToOne) {
     var username = room.user.username
@@ -418,12 +400,12 @@ function chatChannelFromGitterRoom (room, config) {
 
 */
 
-async function putResource (doc) {
+async function rdfPutResource (doc) {
   delete fetcher.requested[doc.uri] // invalidate read cache @@ should be done by fetcher in future
   return fetcher.putBack(doc, clone(normalOptions))
 }
 
-async function loadIfExists (doc) {
+async function rdfLoadIfExists (doc) {
   try {
     // delete fetcher.requested[doc.uri]
     await fetcher.load(doc, clone(normalOptions))
@@ -449,7 +431,7 @@ function suitable (x) {
   // return kb.anyValue(chatDocument, POSIX('size')) !== 0 // empty file?
 }
 
-async function firstMessage (chatChannel, backwards) { // backwards -> last message
+async function rdfFirstMessage (chatChannel, backwards) { // backwards -> last message
   var folderStore = $rdf.graph()
   var folderFetcher = new $rdf.Fetcher(folderStore,fetcherOpts)
   async function earliestSubfolder (parent) {
@@ -495,12 +477,12 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
   return sortMe[0][1]
 }
 
-async function saveEverythingBack () {
+async function rdfSaveEverythingBack () {
   // console.log('Saving all modified files:')
   for (let uri in toBePut) {
     if (toBePut.hasOwnProperty(uri)) {
       console.log('Putting ' + uri)
-      await putResource($rdf.sym(uri))
+      await rdfPutResource($rdf.sym(uri))
       delete fetcher.requested[uri] // invalidate read cache @@ should be done by fether in future
     }
   }
@@ -573,15 +555,18 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
 var newMessages = 0
 var oldMessages = 0
 
-async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
-  var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
+async function storeMessage (chatChannel, messageObject, archiveBaseURI, gitterMessageObject=null) {
+  // Gitter needs an extra function to determine maker
+  if (gitterMessageObject != null) {
+    messageObject.maker = await authorFromGitter(gitterMessageObject.fromUser, archiveBaseURI);
+  }
   // console.log('        Message sent on date ' + sent)
-  var chatDocument = chatDocumentFromDate(chatChannel, sent)
-  var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
+  var chatDocument = rdfChatDocumentFromDate(chatChannel, messageObject.created)
+  var messageRdf = $rdf.sym(chatDocument.uri + '#' + messageObject.id) // like "53316dc47bfc1a000000000f"
   // console.log('          Solid Message  ' + message)
 
-  await loadIfExists(chatDocument)
-  if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
+  await rdfLoadIfExists(chatDocument)
+  if (store.holds(chatChannel, ns.wf('message'), messageRdf, chatDocument)) {
     // console.log(`  already got ${gitterMessage.sent} message ${message}`)
     oldMessages += 1
     return // alraedy got it
@@ -589,20 +574,20 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
   newMessages += 1
   // console.log(`NOT got ${gitterMessage.sent} message ${message}`)
 
-  var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
-  store.add(chatChannel, ns.wf('message'), message, chatDocument)
-  store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
-  if (gitterMessage.html && gitterMessage.html !== gitterMessage.text) { // is it new information?
-    store.add(message, ns.sioc('richContent'), gitterMessage.html, chatDocument) // @@ predicate??
+  
+  store.add(chatChannel, ns.wf('message'), messageRdf, chatDocument)
+  store.add(messageRdf, ns.sioc('content'), messageObject.content, chatDocument)
+  if (messageObject.richContent != null) { // is it new information?
+    store.add(messageRdf, ns.sioc('richContent'), messageObject.richContent, chatDocument) // @@ predicate??
   }
-  store.add(message, ns.dct('created'), sent, chatDocument)
-  if (gitterMessage.edited) {
-    store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
+  store.add(messageRdf, ns.dct('created'), messageObject.created, chatDocument)
+  if (messageObject.modified) {
+    store.add(messageRdf, ns.dct('modified'), messageObject.modified, chatDocument)
   }
-  store.add(message, ns.foaf('maker'), author, chatDocument)
+  store.add(messageRdf, ns.foaf('maker'), messageObject.maker, chatDocument)
   // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
   toBePut[chatDocument.uri] = true
-  return message
+  return messageRdf;
 }
 
 /** Update message friomn update operation
@@ -613,11 +598,11 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI) {
 "text":"The quick red fox",
 "html":"The quick red fox","sent":"2019-03-24T19:18:05.278Z","editedAt":"2019-03-24T19:18:12.757Z","fromUser":{"id":"54d26c98db8155e6700f7312","username":"timbl","displayName":"Tim Berners-Lee","url":"/timbl","avatarUrl":"https://avatars-02.gitter.im/gh/uv/4/timbl","avatarUrlSmall":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=60","avatarUrlMedium":"https://avatars2.githubusercontent.com/u/1254848?v=4&s=128","v":30,"gv":"4"},"unread":true,"readBy":3,"urls":[],"mentions":[],"issues":[],"meta":[],"v":2}}
 */
-async function updateMessage (chatChannel, payload) {
+async function rdfUpdateMessage (chatChannel, payload) {
   var sent = new Date(payload.sent)
-  var chatDocument = chatDocumentFromDate(chatChannel, sent)
+  var chatDocument = rdfChatDocumentFromDate(chatChannel, sent)
   var message = $rdf.sym(chatDocument.uri + '#' + payload.id)
-  await loadIfExists(chatDocument)
+  await rdfLoadIfExists(chatDocument)
   var found = store.any(message, ns.sioc('content'))
   if (!found) {
     console.error('DID NOT FIND MESSAGE TO UPDATE ' + payload.id)
@@ -629,7 +614,7 @@ async function updateMessage (chatChannel, payload) {
   var del = []
   var ins = []
   if (payload.text) {
-    let oldText = kb.the(message, ns.sioc('content'))
+    let oldText = rdfStore.the(message, ns.sioc('content'))
     if (oldText && payload.text === oldText) {
       console.log(` text unchanged as <${oldText}>`)
     } else {
@@ -638,7 +623,7 @@ async function updateMessage (chatChannel, payload) {
     }
   }
   if (payload.html) {
-    let oldText = kb.the(message, ns.sioc('richContent'))
+    let oldText = rdfStore.the(message, ns.sioc('richContent'))
     if (oldText && payload.text === oldText.value) {
       console.log(` text unchanged as <${oldText}>`)
     } else {
@@ -658,10 +643,10 @@ async function updateMessage (chatChannel, payload) {
   }
 }
 
-async function deleteMessage (chatChannel, payload) {
-  var chatDocument = chatDocumentFromDate(chatChannel, new Date()) // @@ guess now
+async function rdfDeleteMessage (chatChannel, payload) {
+  var chatDocument = rdfChatDocumentFromDate(chatChannel, new Date()) // @@ guess now
   var message = $rdf.sym(chatDocument.uri + '#' + payload.id)
-  await loadIfExists(chatDocument)
+  await rdfLoadIfExists(chatDocument)
   var found = store.any(message, ns.sioc('content'))
   if (!found) {
     console.error('DID NOT FIND MESSAGE TO UPDATE ' + payload.id)
@@ -681,79 +666,124 @@ async function deleteMessage (chatChannel, payload) {
 /// /////////////////////////////  Do Room
 
 async function doRoom (room, config) {
-  console.log(`\nDoing room ${room.id}:  ${room.name}`)
+  //console.log(room)
+  const roomId = room.id || room.roomId;
+  console.log(`\nDoing room ${roomId}:  ${room.name}`)
   // console.log('@@ bare room: ' + JSON.stringify(room))
-  var gitterRoom
-  const solidChannel = chatChannelFromGitterRoom(room, config)
-  const archiveBaseURI = archiveBaseURIFromGitterRoom(room, config)
+  var gitterRoom, matrixRoom;
+  let archiveBaseURI;
+  
+  if (GITTER) {
+    archiveBaseURI = gitterArchiveBaseURIFromRoom(room, config);
+    
+  }
+  if (MATRIX) {
+    // TODO
+    archiveBaseURI = matrixArchiveBaseURIFromRoom(room, config);
+  }
+  let solidChannel = chatChannelFromRoom(room, config, archiveBaseURI);
+
+  
+
 
   console.log('    solid channel ' + solidChannel)
 
-  function findEarliestId (messages) {
-    var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
+  function messagesFindEarliestId (messages) {
+    var sortMe = messages.map(messageObject => [messageObject.created, messageObject])
     if (sortMe.length === 0) return null
     sortMe.sort()
     const earliest = sortMe[0][1]
     return earliest.id
   }
 
-  async function show () {
+  async function gitterDoRoomShow () {
     let name = room.oneToOne ? '@' + room.user.username : room.name
     console.log(`     ${room.githubType}: ${name}`)
   }
 
-  async function details () {
+  async function gitterRoomDetails () {
     let name = room.oneToOne ? '@' + room.user.username : room.name
     console.log(`${room.githubType}: ${name}`)
     console.log(JSON.stringify(room))
   }
 
+
   async function catchup () {
     newMessages = 0
     oldMessages = 0
-    gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
-    var messages = await gitterRoom.chatMessages() // @@@@ ?
-    if (messages.length !== 50) console.log('  Messages read: ' + messages.length)
-    for (let gitterMessage of messages) {
-      await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
+    let messages = [];
+    if (GITTER) {
+      gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
+      let gitterMessages = await gitterRoom.chatMessages() // @@@@ ?
+
+      if (gitterMessages.length !== 50) console.log('  Messages read: ' + messages.length)
+      for (let gitterMessage of gitterMessages) {
+        let message = new Message(gitterMessage, false);
+        await storeMessage(solidChannel, message, archiveBaseURI, gitterMessageObject = gitterMessage)
+        messages.push(message);
+      }
+    } else {
+      matrixRoom = await matrixClient.roomInitialSync(roomId, 100);
+      console.log("--matrixroom--")
+      console.log(matrixRoom)
+
+      for (let matrixMessage of matrixRoom.messages.chunk) {
+        if (matrixMessage.type != "m.room.message") {
+          console.log("Currently gitter-solid only supports saving messages. Skipping " + matrixMessage.type)
+          continue;
+        }
+        if (!Message.matrixMessageHasContent(matrixMessage)) {
+          console.log("No content in message! Skipping.")
+          continue;
+        }
+        let message = new Message(matrixMessage, true);
+        await storeMessage(solidChannel, message, archiveBaseURI);
+        messages.push(message);
+
+      }
     }
-    await saveEverythingBack()
+
+    await rdfSaveEverythingBack()
     if (oldMessages) {
       console.log('End catchup. Found message we already had.')
       return true
     }
-    var newId = findEarliestId(messages)
+    var newId = messagesFindEarliestId(messages)
     if (!newId) {
       console.log('Catchup found no gitter messages.')
       return true
     }
-    for (let i = 0; i < 30; i++) {
-      newId = await extendBeforeId(newId)
-      if (!newId) {
-        console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
-        return true
+    // TODO implement for Matrix
+    if (GITTER) {
+      for (let i = 0; i < 30; i++) {
+        newId = await gitterExtendBeforeId(newId)
+        if (!newId) {
+          console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
+          return true
+        }
+        if (oldMessages) {
+          console.log(`End catchup. Found message we already had, after ${newMessages} .`)
+          return true
+        }
+        console.log(' ... pause ...')
+        await delayMs(3000) // ms  give the API a rest
       }
-      if (oldMessages) {
-        console.log(`End catchup. Found message we already had, after ${newMessages} .`)
-        return true
-      }
-      console.log(' ... pause ...')
-      await delayMs(3000) // ms  give the API a rest
+      console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
+      return false
     }
-    console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
-    return false
+
   }
 
   async function initialize () {
-    const solidChannel = chatChannelFromGitterRoom(room, config)
+    const solidChannel = chatChannelFromRoom(room, config, archiveBaseURI)
     console.log('    solid channel ' + solidChannel)
     // Make the main chat channel file
     var newChatDoc = solidChannel.doc()
-    let already = await loadIfExists(newChatDoc)
+    let already = await rdfLoadIfExists(newChatDoc)
     if (!already) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
-      store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
-      await putResource(newChatDoc)
+      store.add(solidChannel, ns.dc('title'), room.name + ' solid-gitter chat archive', newChatDoc)
+      await rdfPutResource(newChatDoc)
       console.log('    New chat channel created. ' + solidChannel)
       return false
     } else {
@@ -762,14 +792,14 @@ async function doRoom (room, config) {
     }
   }
 
-  async function extendArchiveBack () {
-    let m0 = await firstMessage(solidChannel)
-    let d0 = kb.anyValue(m0, ns.dct('created'))
+  async function rdfExtendArchiveBack () {
+    let m0 = await rdfFirstMessage(solidChannel)
+    let d0 = rdfStore.anyValue(m0, ns.dct('created'))
     console.log('Before extension back, earliest message ' + d0)
     var newId = m0.uri.split('#')[1]
    // var newId = await extendBeforeId(id)
     for (let i = 0; i < 30; i++) {
-      newId = await extendBeforeId(newId)
+      newId = await gitterExtendBeforeId(newId)
       if (!newId) return null
       console.log(' ... pause ...')
       await delayMs(3000) // ms  give the API a rest
@@ -777,7 +807,7 @@ async function doRoom (room, config) {
     return newId
   }
 
-  async function stream (store) {
+  async function gitterStream (store) {
     gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     var events = gitterRoom.streaming().chatMessages()
 
@@ -805,10 +835,10 @@ async function doRoom (room, config) {
         }
       } else if (gitterEvent.operation === 'remove') {
         console.log('Deleting existing message:')
-        await deleteMessage(solidChannel, gitterEvent.model)
+        await rdfDeleteMessage(solidChannel, gitterEvent.model)
       } else if (gitterEvent.operation === 'update') {
         console.log('Updating existing message:')
-        await updateMessage(solidChannel, gitterEvent.model)
+        await rdfUpdateMessage(solidChannel, gitterEvent.model)
       } else if (gitterEvent.operation === 'patch') {
         console.log('Ignoring patch')
       } else {
@@ -820,7 +850,7 @@ async function doRoom (room, config) {
 
   /* Returns earliest id it finds so can be chained
   */
-  async function extendBeforeId (id) {
+  async function gitterExtendBeforeId (id) {
     console.log(`   Looking for messages before ${id}`)
     gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
     let messages = await gitterRoom.chatMessages({limit: 100, beforeId: id})
@@ -832,9 +862,9 @@ async function doRoom (room, config) {
     for (let gitterMessage of messages) {
       await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
     }
-    await saveEverythingBack()
-    let m1 = await firstMessage(solidChannel)
-    let d1 = kb.anyValue(m1, ns.dct('created'))
+    await rdfSaveEverythingBack()
+    let m1 = await rdfFirstMessage(solidChannel)
+    let d1 = rdfStore.anyValue(m1, ns.dct('created'))
     console.log('After extension back, earliest message now ' + d1)
 
     var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
@@ -843,7 +873,7 @@ async function doRoom (room, config) {
 
     return earliest.id
   }
-  async function create() {
+  async function gitterCreate() {
     console.log('First make the solid chat object if necessary:')
     await initialize()
     console.log('Now first catchup  recent messages:')
@@ -853,7 +883,7 @@ async function doRoom (room, config) {
       return null
     }
     console.log('Now extend the archive back hopefully all the way -- but check:')
-    let pickUpFrom = await extendArchiveBack()
+    let pickUpFrom = await rdfExtendArchiveBack()
     if (pickUpFrom) {
       console.log('Did NOT go all the way.   More archive sessions will be needed. ⚠️')
     } else {
@@ -863,11 +893,11 @@ async function doRoom (room, config) {
   }
   // Body of doRoom
   if (command === 'show') {
-    await show()
+    await gitterDoRoomShow()
   } else if (command === 'details') {
-      await details()
+      await gitterRoomDetails()
   } else if (command === 'archive') {
-    await extendArchiveBack()
+    await rdfExtendArchiveBack()
   } else if (command === 'catchup') {
     await catchup()
   } else if (command === 'stream') {
@@ -878,12 +908,12 @@ async function doRoom (room, config) {
       throw new Error('Not caught up. Cant stream.')
     }
     console.log('Catchup done. Now set up stream.')
-    await stream(store)
+    await gitterStream(store)
   } else if (command === 'init') {
     var already = await initialize()
     // console.log('Solid channel already there:' + already)
   } else if (command === 'create') {
-    await create()
+    await gitterCreate()
   }
 }
 
@@ -892,9 +922,9 @@ async function loadConfig () {
   let localPod = process.argv[4];
   let remotePod = false;
   if(!localPod){
-    remotePod = await confirm('Store on remote pod');
+    remotePod = confirm('Store on remote pod');
     if(!remotePod) {
-      localPod =  await readlineSync.question('URI to local pod (e.g. file:///home/me/myPod/) : ');
+      localPod =  readlineSync.question('URI to local pod (e.g. file:///home/me/myPod/) : ');
     }
   }
   if( localPod && !remotePod && !localPod.startsWith('http')){
@@ -927,81 +957,109 @@ async function loadConfig () {
       password: process.env.SOLID_PASSWORD
     }
     if(!creds.idp){
-      const idp = await readlineSync.question('Identity Provider (e.g. https://solidcommunity.net) : ')
+      creds.idp = readlineSync.question('Identity Provider (e.g. https://solidcommunity.net) : ')
     }
     if(!creds.username){
-      const username = await readlineSync.question('Pod username : ')
+      creds.username = readlineSync.question('Pod username : ')
     }
     if(!creds.password){
-      const password = await readlineSync.question('Pod password : ')
+      creds.password = readlineSync.question('Pod password : ')
     }
+    console.log(creds)
     console.log(`Logging into Solid Pod <${creds.idp}>`)
     var session = await auth.login(creds);
+    console.log(session)
     webId = session.webId
   }
   const me = $rdf.sym(webId)
   console.log('Logged in to Solid as ' + me)
-  var gitterConfig = {}
+  var folderConfig = {}
   await fetcher.load(me.doc())
-  const prefs = kb.the(me, ns.space('preferencesFile'), null, me.doc())
+  const prefs = rdfStore.the(me, ns.space('preferencesFile'), null, me.doc())
   console.log('Loading prefs ' + prefs)
   await fetcher.load(prefs)
   console.log('Loaded prefs ✅')
 
-  var config = kb.the(me, ns.solid('gitterConfiguationFile'), null, prefs)
-  if (!config) {
-    console.log('You don\'t have a gitter configuration. ')
-    config = $rdf.sym(prefs.dir().uri + 'gitterConfiguration.ttl')
-    if (await confirm('Make a gitter config file now in your pod at ' + config)) {
-      console.log('    putting ' + config)
-      await kb.fetcher.webOperation('PUT', config.uri, {data: '', contentType: 'text/turtle'})
-      console.log('    getting ' + config)
-      await kb.fetcher.load(config)
-      await kb.updater.update([], [$rdf.st(me, ns.solid('gitterConfiguationFile'), config, prefs)])
-      await kb.updater.update([], [$rdf.st(config, ns.dct('title'), 'My gitter config file', config)])
-      console.log('Made new gitter config: ' + config)
+  // Get the config file if it exists
+  const SOLIDCONFIGFILE = 'solidGitterConfigurationFile';
+  let solidConfig = rdfStore.the(me, ns.solid(SOLIDCONFIGFILE), null, prefs)
+  if (!solidConfig) {
+    console.log('You don\'t have a solid-gitter configuration. ')
+    solidConfig = $rdf.sym(prefs.dir().uri + 'solidGitterConfiguationFile.ttl')
+    if (await confirm('Make a solid-gitter config file now in your pod at ' + solidConfig)) {
+      console.log('    putting ' + solidConfig)
+      await rdfStore.fetcher.webOperation('PUT', solidConfig.uri, {data: '', contentType: 'text/turtle'})
+      console.log('    getting ' + solidConfig)
+      await rdfStore.fetcher.load(solidConfig)
+      await rdfStore.updater.update([], [$rdf.st(me, ns.solid(SOLIDCONFIGFILE), solidConfig, prefs)])
+      await rdfStore.updater.update([], [$rdf.st(solidConfig, ns.dct('title'), 'My gitter config file', solidConfig)])
+      console.log('Made new solid-gitter config: ' + solidConfig)
     } else {
       console.log('Ok, exiting, no gitter config')
       process.exit(4)
     }
   } else {
-    await fetcher.load(config)
+    await fetcher.load(solidConfig)
   }
-  console.log('Have gitter config ✅')
 
-  for (let opt of opts) {
-    var x = kb.any(me, ns.solid(opt))
+  console.log('Have solid-gitter config ✅')
+
+  const FOLDERS = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder']
+  for (let opt of FOLDERS) {
+    var x = rdfStore.any(me, ns.solid(opt))
     console.log(` Config option ${opt}: "${x}"`)
     if (x && x.uri) {
-      gitterConfig[opt] = x.uri
+      folderConfig[opt] = x.uri
     } else {
       console.log('\nThis must a a full https: or file: URI ending in a slash, which folder on your pod or local file system you want gitter chat stored.')
       x = await readlineSync.question('URI for ' + opt + '? ')
       console.log('@@@@@ aaaaa :' + x)
       if (x.length > 0 && x.endsWith('/')) {
         console.log(`@@ saving config ${opt} =  ${x}`)
-        await kb.updater.update([], [$rdf.st(me, ns.solid(opt), $rdf.sym(x), config)])
+        await rdfStore.updater.update([], [$rdf.st(me, ns.solid(opt), $rdf.sym(x), solidConfig)])
         console.log(`saved config ${opt} =  ${x}`)
       } else {
         console.log('abort. exit.')
         process.exit(6)
       }
     }
-    gitterConfig[opt] = x
+    folderConfig[opt] = x
   }
   console.log('We have all config data ✅')
-  return gitterConfig
+  return folderConfig;
+  
+
+
 }
 
 //////////////////////////////////////////////////////////////////
+/**
+ * This function is the main function that gets called.
+ * The comments below will sometimes start with (GITTER) or
+ * (MATRIX). This refers to which constant has to be enabled,
+ * and thus which api gets used
+ * 
+ * @returns 
+ * 
+ * 
+ */
 async function go () {
+  // Start the Matrix or Gitter client
   await init();
+
+  let rooms = []
+  var usernameIndex = {}
+  var targetRoom;
+  var roomsToDo = []
+
+  // (GITTER) Split up rooms
   var oneToOnes = []
   var privateRooms = []
   var publicRooms = []
-  var usernameIndex = {}
-  let rooms = []
+
+  // (GITTER) Collect and split up all rooms
   if (GITTER) {
+    // 1: Collect all rooms
     console.log(`Logging into gitter room ${targetRoomName} ...`)
     var user
     try {
@@ -1012,115 +1070,102 @@ async function go () {
     }
     console.log('You are logged into gitter as:', user.username)
     rooms = await user.rooms()
+
+    // 2: Split up all rooms
+    var roomIndex = {}
+    for (let r = 0; r < rooms.length; r++) {
+      var room = rooms[r]
+      // const oneToOne = room.oneToOne
+      // const noun = oneToOne ? 'OneToOne' : 'Room'
+      roomIndex[room.name] = room
+      if (room.oneToOne) {
+        oneToOnes.push(room)
+        // console.log('@@@@ remembering ' + '@' + room.user.username)
+        usernameIndex[ '@' + room.user.username] = room
+      } else {
+        if (room.public) {
+          publicRooms.push(room)
+        } else {
+          privateRooms.push(room)
+        }
+        if (room.name === targetRoomName) {
+          console.log('Target room found: ' + room.name)
+        }
+      }
+    }
+
+    // 3: Select which rooms to display
+    if (targetRoomName) {
+      if (targetRoomName === 'direct') {
+        roomsToDo = oneToOnes
+      } else if (targetRoomName === 'private') {
+        roomsToDo = privateRooms
+      } else if (targetRoomName === 'public') {
+        roomsToDo = publicRooms
+      } else if (targetRoomName === 'all') {
+        roomsToDo = oneToOnes.concat(privateRooms).concat(publicRooms)
+      } else {
+        console.log(`targetRoomName 2 "${targetRoomName}"`)
+        console.log('@@@@@@ '  + usernameIndex[targetRoomName])
+        targetRoom = targetRoomName.startsWith('@') ? usernameIndex[targetRoomName] : roomIndex[targetRoomName]
+        if (targetRoom) {
+          roomsToDo = [ targetRoom ]
+          console.log('Single room selected: ' + targetRoom.name)
+        }
+      }
+
+      console.log('targetRoomName 1 ' + targetRoomName)
+    }
+    
   } else {
 
     // function (err, data) {
     //     console.log("Public Rooms: %s", JSON.stringify(data));
     // });
   }
+  // (MATRIX) Collect all rooms
+  if (MATRIX) {
+    rooms = setRoomList(matrixClient);
+    roomsToDo = rooms;
+  }
 
-  console.log('rooms ' + rooms.length)
+  console.log('rooms -- ' + rooms.length)
+  if (rooms.length < 1) {
+    console.error("No rooms were found! Exiting...")
+    process.exit(1);
+  }
 
+  // Start interface
+  /*
+  let rl = initReadlineAsync();
   rl.setPrompt("> ");
   rl.on("line", function (line) {})
-  matrixClient.startClient(numMessagesToShow); // messages for each room.
+  */
+  //matrixClient.startClient(numMessagesToShow); // messages for each room.
 
-  return
 
-  console.log('@ testing exit ')
-  process.exit()
-
-  var roomIndex = {}
-  for (let r = 0; r < rooms.length; r++) {
-    var room = rooms[r]
-    // const oneToOne = room.oneToOne
-    // const noun = oneToOne ? 'OneToOne' : 'Room'
-    roomIndex[room.name] = room
-    if (room.oneToOne) {
-      oneToOnes.push(room)
-      // console.log('@@@@ remembering ' + '@' + room.user.username)
-      usernameIndex[ '@' + room.user.username] = room
-    } else {
-      if (room.public) {
-        publicRooms.push(room)
-      } else {
-        privateRooms.push(room)
-      }
-      if (room.name === targetRoomName) {
-        console.log('Target room found: ' + room.name)
-      }
-    }
-  }
   if (command === 'list') {
-    console.log('List of direct one-one chats:')
-    for (let r of oneToOnes) {
-      var username = r.user.username
-      if (!username) throw new Error('one-one must have user username!')
-      username = '@' + username
-      if (!targetRoomName) {
-        console.log(`     ${r.githubType}: ${username}: ${r.name}`)
-      }
-      if (r.name === targetRoomName || username === targetRoomName) {
-        console.log('      Found ' + username)
-        console.log(JSON.stringify(r))
-        if (room.public) throw new Error('@@@ One-One should not be public!!')
-      }
+    if (GITTER) {
+      commandListGitter(oneToOnes, privateRooms, publicRooms);
     }
-    console.log('List of multi person PRIVATE rooms:')
-    for (let r of privateRooms) {
-      if (!targetRoomName) {
-        console.log(`     ${r.githubType}: ${r.name}  - PRIVATE`)
-      }
-      if (r.name === targetRoomName) {
-        console.log('      found ' + r.name)
-        console.log(JSON.stringify(r))
-      }
-    }
-    console.log('List of multi person Public rooms:')
-    for (let r of publicRooms) {
-      if (!targetRoomName) {
-        console.log(`     ${r.githubType}: ${r.name}  - Public`)
-      }
-      if (r.name === targetRoomName) {
-        console.log('      found ' + r.name)
-        console.log(JSON.stringify(r))
-      }
-    }
-    process.exit(0) // No more processing for list
-  }
-
-  var targetRoom
-  var roomsToDo = []
-  console.log('targetRoomName 1 ' + targetRoomName)
-
-  if (targetRoomName) {
-    if (targetRoomName === 'direct') {
-      roomsToDo = oneToOnes
-    } else if (targetRoomName === 'private') {
-      roomsToDo = privateRooms
-    } else if (targetRoomName === 'public') {
-      roomsToDo = publicRooms
-    } else if (targetRoomName === 'all') {
-      roomsToDo = oneToOnes.concat(privateRooms).concat(publicRooms)
-    } else {
-      console.log(`targetRoomName 2 "${targetRoomName}"`)
-      console.log('@@@@@@ '  + usernameIndex[targetRoomName])
-      targetRoom = targetRoomName.startsWith('@') ? usernameIndex[targetRoomName] : roomIndex[targetRoomName]
-      if (targetRoom) {
-        roomsToDo = [ targetRoom ]
-        console.log('Single room selected: ' + targetRoom.name)
-      }
+    if (MATRIX) {
+      commandListMatrix();
     }
   }
 
+
+  console.log('Rooms to do: ' + roomsToDo.length)
   if (roomsToDo.length === 0) {
     console.log(`Room "${targetRoomName}" not found!`)
     console.log(JSON.stringify(usernameIndex))
     process.exit(10)
   }
-  console.log('Rooms to do: ' + roomsToDo.length)
-  const config = await loadConfig()
+  
+
+  // Check where to save
+  const config = await loadConfig();
   var count = 0
+
   for (let targetRoom of roomsToDo) {
     try {
       await doRoom(targetRoom, config)
@@ -1143,7 +1188,52 @@ async function go () {
 
 var toBePut = []
 var peopleDone = {}
-const opts = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder']
 go()
+
+/**
+ * Functions used in @see go
+ * Naming structure: command{Name}{Platform}
+ */
+function commandListGitter(oneToOnes, privateRooms, publicRooms) {
+  console.log('List of direct one-one chats:')
+  for (let r of oneToOnes) {
+    var username = r.user.username
+    if (!username) throw new Error('one-one must have user username!')
+    username = '@' + username
+    if (!targetRoomName) {
+      console.log(`     ${r.githubType}: ${username}: ${r.name}`)
+    }
+    if (r.name === targetRoomName || username === targetRoomName) {
+      console.log('      Found ' + username)
+      console.log(JSON.stringify(r))
+      if (room.public) throw new Error('@@@ One-One should not be public!!')
+    }
+  }
+  console.log('List of multi person PRIVATE rooms:')
+  for (let r of privateRooms) {
+    if (!targetRoomName) {
+      console.log(`     ${r.githubType}: ${r.name}  - PRIVATE`)
+    }
+    if (r.name === targetRoomName) {
+      console.log('      found ' + r.name)
+      console.log(JSON.stringify(r))
+    }
+  }
+  console.log('List of multi person Public rooms:')
+  for (let r of publicRooms) {
+    if (!targetRoomName) {
+      console.log(`     ${r.githubType}: ${r.name}  - Public`)
+    }
+    if (r.name === targetRoomName) {
+      console.log('      found ' + r.name)
+      console.log(JSON.stringify(r))
+    }
+  }
+  process.exit(0) // No more processing for list
+}
+
+function commandListMatrix() {
+  matrixPrintRoomList();
+}
 
 // ends

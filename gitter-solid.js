@@ -97,7 +97,7 @@ let roomList = []
 
 
 
-function matrixShowRoom (room) {
+function matrixShowRoomString (room) {
     var msg = room.timeline[room.timeline.length - 1];
     var dateStr = "---";
     if (msg) {
@@ -112,10 +112,9 @@ function matrixShowRoom (room) {
 function matrixPrintRoomList() {
     // console.log(CLEAR_CONSOLE);
     console.log("Room List:");
-    for (let room in roomList) {
-      console.log(room)
-        console.log(matrixShowRoom(room))
-    }
+    roomList.forEach((room) => {
+      console.log(matrixShowRoomString(room));
+    });
 }
 
 function matrixShowMessage (event, myUserId) {
@@ -178,7 +177,7 @@ function matrixLoadRoomMessages (room) {
 async function matrixProcessRooms () {
     for (let i = 0; i < roomList.length; i++) {
         const room = roomList[i]
-        console.log(`\n Room "${i}": <${room.roomId}> ${matrixShowRoom(room)}`)
+        console.log(`\n Room "${i}": <${room.roomId}> ${matrixShowRoomString(room)}`)
         console.log(`    timeline(${room.timeline.length}`)
         // console.log(JSON.stringify(room))
 

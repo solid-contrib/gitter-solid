@@ -330,9 +330,9 @@ const auth = new SolidNodeClient({parser:$rdf})
 const fetcherOpts = {fetch: auth.fetch.bind(auth), timeout: 900000};
 
 const store = $rdf.graph()
-const kb = store // shorthand -- knowledge base
-const fetcher = $rdf.fetcher(kb, fetcherOpts)
-const updater = new $rdf.UpdateManager(kb)
+const rdfStore = store // shorthand -- knowledge base
+const fetcher = $rdf.fetcher(rdfStore, fetcherOpts)
+const updater = new $rdf.UpdateManager(rdfStore)
 
 function delayMs (ms) {
   console.log('pause ... ')
@@ -365,6 +365,10 @@ function gitterArchiveBaseURIFromRoom (room, config) {
   const folder = room.oneToOne ? config.individualChatFolder
          : room.public ? config.publicChatFolder : config.privateChatFolder
   return (folder.uri) ? folder.uri : folder // needed if config newly created
+}
+
+function matrixArchiveBaseURIFromRoom(room) {
+
 }
 
 /** Decide URI of solid chat vchanel from properties of gitter room
@@ -605,7 +609,7 @@ async function rdfUpdateMessage (chatChannel, payload) {
   var del = []
   var ins = []
   if (payload.text) {
-    let oldText = kb.the(message, ns.sioc('content'))
+    let oldText = rdfStore.the(message, ns.sioc('content'))
     if (oldText && payload.text === oldText) {
       console.log(` text unchanged as <${oldText}>`)
     } else {
@@ -614,7 +618,7 @@ async function rdfUpdateMessage (chatChannel, payload) {
     }
   }
   if (payload.html) {
-    let oldText = kb.the(message, ns.sioc('richContent'))
+    let oldText = rdfStore.the(message, ns.sioc('richContent'))
     if (oldText && payload.text === oldText.value) {
       console.log(` text unchanged as <${oldText}>`)
     } else {
@@ -665,6 +669,7 @@ async function doRoom (room, config) {
   if (GITTER) {
     solidChannel = gitterChatChannelFromRoom(room, config);
     archiveBaseURI = gitterArchiveBaseURIFromRoom(room, config);
+    
   }
   if (MATRIX) {
     // TODO
@@ -750,7 +755,7 @@ async function doRoom (room, config) {
 
   async function rdfExtendArchiveBack () {
     let m0 = await rdfFirstMessage(solidChannel)
-    let d0 = kb.anyValue(m0, ns.dct('created'))
+    let d0 = rdfStore.anyValue(m0, ns.dct('created'))
     console.log('Before extension back, earliest message ' + d0)
     var newId = m0.uri.split('#')[1]
    // var newId = await extendBeforeId(id)
@@ -820,7 +825,7 @@ async function doRoom (room, config) {
     }
     await rdfSaveEverythingBack()
     let m1 = await rdfFirstMessage(solidChannel)
-    let d1 = kb.anyValue(m1, ns.dct('created'))
+    let d1 = rdfStore.anyValue(m1, ns.dct('created'))
     console.log('After extension back, earliest message now ' + d1)
 
     var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
@@ -929,60 +934,61 @@ async function loadConfig () {
   }
   const me = $rdf.sym(webId)
   console.log('Logged in to Solid as ' + me)
-  var gitterConfig = {}
+  var folderConfig = {}
   await fetcher.load(me.doc())
-  const prefs = kb.the(me, ns.space('preferencesFile'), null, me.doc())
+  const prefs = rdfStore.the(me, ns.space('preferencesFile'), null, me.doc())
   console.log('Loading prefs ' + prefs)
   await fetcher.load(prefs)
   console.log('Loaded prefs ✅')
 
-  if (GITTER) {
-
-    // TODO make sure config is only needed by gitter
-    var config = kb.the(me, ns.solid('gitterConfiguationFile'), null, prefs)
-    if (!config) {
-      console.log('You don\'t have a gitter configuration. ')
-      config = $rdf.sym(prefs.dir().uri + 'gitterConfiguration.ttl')
-      if (await confirm('Make a gitter config file now in your pod at ' + config)) {
-        console.log('    putting ' + config)
-        await kb.fetcher.webOperation('PUT', config.uri, {data: '', contentType: 'text/turtle'})
-        console.log('    getting ' + config)
-        await kb.fetcher.load(config)
-        await kb.updater.update([], [$rdf.st(me, ns.solid('gitterConfiguationFile'), config, prefs)])
-        await kb.updater.update([], [$rdf.st(config, ns.dct('title'), 'My gitter config file', config)])
-        console.log('Made new gitter config: ' + config)
-      } else {
-        console.log('Ok, exiting, no gitter config')
-        process.exit(4)
-      }
+  // Get the config file if it exists
+  const SOLIDCONFIGFILE = 'solidGitterConfigurationFile';
+  let solidConfig = rdfStore.the(me, ns.solid(SOLIDCONFIGFILE), null, prefs)
+  if (!solidConfig) {
+    console.log('You don\'t have a solid-gitter configuration. ')
+    solidConfig = $rdf.sym(prefs.dir().uri + 'solidGitterConfiguationFile.ttl')
+    if (await confirm('Make a solid-gitter config file now in your pod at ' + solidConfig)) {
+      console.log('    putting ' + solidConfig)
+      await rdfStore.fetcher.webOperation('PUT', solidConfig.uri, {data: '', contentType: 'text/turtle'})
+      console.log('    getting ' + solidConfig)
+      await rdfStore.fetcher.load(solidConfig)
+      await rdfStore.updater.update([], [$rdf.st(me, ns.solid(SOLIDCONFIGFILE), solidConfig, prefs)])
+      await rdfStore.updater.update([], [$rdf.st(solidConfig, ns.dct('title'), 'My gitter config file', solidConfig)])
+      console.log('Made new solid-gitter config: ' + solidConfig)
     } else {
-      await fetcher.load(config)
+      console.log('Ok, exiting, no gitter config')
+      process.exit(4)
     }
-    console.log('Have gitter config ✅')
-
-    for (let opt of opts) {
-      var x = kb.any(me, ns.solid(opt))
-      console.log(` Config option ${opt}: "${x}"`)
-      if (x && x.uri) {
-        gitterConfig[opt] = x.uri
-      } else {
-        console.log('\nThis must a a full https: or file: URI ending in a slash, which folder on your pod or local file system you want gitter chat stored.')
-        x = await readlineSync.question('URI for ' + opt + '? ')
-        console.log('@@@@@ aaaaa :' + x)
-        if (x.length > 0 && x.endsWith('/')) {
-          console.log(`@@ saving config ${opt} =  ${x}`)
-          await kb.updater.update([], [$rdf.st(me, ns.solid(opt), $rdf.sym(x), config)])
-          console.log(`saved config ${opt} =  ${x}`)
-        } else {
-          console.log('abort. exit.')
-          process.exit(6)
-        }
-      }
-      gitterConfig[opt] = x
-    }
-    console.log('We have all config data ✅')
-    return gitterConfig
+  } else {
+    await fetcher.load(solidConfig)
   }
+
+  console.log('Have solid-gitter config ✅')
+
+  const FOLDERS = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder']
+  for (let opt of FOLDERS) {
+    var x = rdfStore.any(me, ns.solid(opt))
+    console.log(` Config option ${opt}: "${x}"`)
+    if (x && x.uri) {
+      folderConfig[opt] = x.uri
+    } else {
+      console.log('\nThis must a a full https: or file: URI ending in a slash, which folder on your pod or local file system you want gitter chat stored.')
+      x = await readlineSync.question('URI for ' + opt + '? ')
+      console.log('@@@@@ aaaaa :' + x)
+      if (x.length > 0 && x.endsWith('/')) {
+        console.log(`@@ saving config ${opt} =  ${x}`)
+        await rdfStore.updater.update([], [$rdf.st(me, ns.solid(opt), $rdf.sym(x), solidConfig)])
+        console.log(`saved config ${opt} =  ${x}`)
+      } else {
+        console.log('abort. exit.')
+        process.exit(6)
+      }
+    }
+    folderConfig[opt] = x
+  }
+  console.log('We have all config data ✅')
+  return folderConfig;
+  
 
 
 }
@@ -1143,7 +1149,6 @@ async function go () {
 
 var toBePut = []
 var peopleDone = {}
-const opts = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder']
 go()
 
 /**

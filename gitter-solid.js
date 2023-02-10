@@ -367,21 +367,22 @@ function gitterArchiveBaseURIFromRoom (room, config) {
   return (folder.uri) ? folder.uri : folder // needed if config newly created
 }
 
-function matrixArchiveBaseURIFromRoom(room) {
-
+function matrixArchiveBaseURIFromRoom(room, config) {
+  // TODO: implement different folders. Currently Matrix will just default to public
+  const folder = config.publicChatFolder;
+  return (folder.uri) ? folder.uri : folder;
 }
 
 /** Decide URI of solid chat vchanel from properties of gitter room
  *
  * @param room {Room} - like 'solid/chat'
 */
-function gitterChatChannelFromRoom (room, config) {
+function chatChannelFromRoom (room, config, archiveBaseURI) {
   var path
   let segment = room.name.split('/').map(encodeURIComponent).join('/') // Preseeve the slash begween org and room
   if (room.githubType === 'ORG') {
     segment += '/_Organization' // make all multi rooms two level names
   }
-  var archiveBaseURI = gitterArchiveBaseURIFromRoom(room, config)
   if (!archiveBaseURI.endsWith('/')) throw new Error('base should end with slash')
   if (room.oneToOne) {
     var username = room.user.username
@@ -661,19 +662,21 @@ async function rdfDeleteMessage (chatChannel, payload) {
 /// /////////////////////////////  Do Room
 
 async function doRoom (room, config) {
+  console.log(room)
   console.log(`\nDoing room ${room.id}:  ${room.name}`)
   // console.log('@@ bare room: ' + JSON.stringify(room))
-  var gitterRoom
-  let solidChannel, archiveBaseURI;
+  var gitterRoom;
+  let archiveBaseURI;
   
   if (GITTER) {
-    solidChannel = gitterChatChannelFromRoom(room, config);
     archiveBaseURI = gitterArchiveBaseURIFromRoom(room, config);
     
   }
   if (MATRIX) {
     // TODO
+    archiveBaseURI = matrixArchiveBaseURIFromRoom(room, config);
   }
+  let solidChannel = chatChannelFromRoom(room, config, archiveBaseURI);
 
   
 
@@ -736,14 +739,14 @@ async function doRoom (room, config) {
   }
 
   async function initialize () {
-    const solidChannel = gitterChatChannelFromRoom(room, config)
+    const solidChannel = chatChannelFromRoom(room, config, archiveBaseURI)
     console.log('    solid channel ' + solidChannel)
     // Make the main chat channel file
     var newChatDoc = solidChannel.doc()
     let already = await rdfLoadIfExists(newChatDoc)
     if (!already) {
       store.add(solidChannel, ns.rdf('type'), ns.meeting('LongChat'), newChatDoc)
-      store.add(solidChannel, ns.dc('title'), room.name + ' gitter chat archive', newChatDoc)
+      store.add(solidChannel, ns.dc('title'), room.name + ' solid-gitter chat archive', newChatDoc)
       await rdfPutResource(newChatDoc)
       console.log('    New chat channel created. ' + solidChannel)
       return false

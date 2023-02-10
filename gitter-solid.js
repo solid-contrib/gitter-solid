@@ -25,6 +25,7 @@ import * as readline from 'readline'
 
 import { show } from "./src/utils.mjs"
 import { setRoomList } from "./src/matrix-utils.mjs";
+import Message from "./src/class-message.mjs";
 
 dotenv.config()
 
@@ -554,15 +555,18 @@ async function authorFromGitter (fromUser, archiveBaseURI) {
 var newMessages = 0
 var oldMessages = 0
 
-async function gitterStoreMessage (chatChannel, gitterMessage, archiveBaseURI) {
-  var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
+async function storeMessage (chatChannel, messageObject, archiveBaseURI, gitterMessageObject=null) {
+  // Gitter needs an extra function to determine maker
+  if (gitterMessageObject != null) {
+    messageObject.maker = await authorFromGitter(gitterMessageObject.fromUser, archiveBaseURI);
+  }
   // console.log('        Message sent on date ' + sent)
-  var chatDocument = rdfChatDocumentFromDate(chatChannel, sent)
-  var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
+  var chatDocument = rdfChatDocumentFromDate(chatChannel, messageObject.created)
+  var messageRdf = $rdf.sym(chatDocument.uri + '#' + messageObject.id) // like "53316dc47bfc1a000000000f"
   // console.log('          Solid Message  ' + message)
 
   await rdfLoadIfExists(chatDocument)
-  if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
+  if (store.holds(chatChannel, ns.wf('message'), messageRdf, chatDocument)) {
     // console.log(`  already got ${gitterMessage.sent} message ${message}`)
     oldMessages += 1
     return // alraedy got it
@@ -570,20 +574,20 @@ async function gitterStoreMessage (chatChannel, gitterMessage, archiveBaseURI) {
   newMessages += 1
   // console.log(`NOT got ${gitterMessage.sent} message ${message}`)
 
-  var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
-  store.add(chatChannel, ns.wf('message'), message, chatDocument)
-  store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
-  if (gitterMessage.html && gitterMessage.html !== gitterMessage.text) { // is it new information?
-    store.add(message, ns.sioc('richContent'), gitterMessage.html, chatDocument) // @@ predicate??
+  
+  store.add(chatChannel, ns.wf('message'), messageRdf, chatDocument)
+  store.add(messageRdf, ns.sioc('content'), messageObject.content, chatDocument)
+  if (messageObject.richContent != null) { // is it new information?
+    store.add(messageRdf, ns.sioc('richContent'), messageObject.richContent, chatDocument) // @@ predicate??
   }
-  store.add(message, ns.dct('created'), sent, chatDocument)
-  if (gitterMessage.edited) {
-    store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
+  store.add(messageRdf, ns.dct('created'), messageObject.created, chatDocument)
+  if (messageObject.modified) {
+    store.add(messageRdf, ns.dct('modified'), messageObject.modified, chatDocument)
   }
-  store.add(message, ns.foaf('maker'), author, chatDocument)
+  store.add(messageRdf, ns.foaf('maker'), messageObject.maker, chatDocument)
   // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
   toBePut[chatDocument.uri] = true
-  return message
+  return messageRdf;
 }
 
 /** Update message friomn update operation
@@ -666,7 +670,7 @@ async function doRoom (room, config) {
   const roomId = room.id || room.roomId;
   console.log(`\nDoing room ${roomId}:  ${room.name}`)
   // console.log('@@ bare room: ' + JSON.stringify(room))
-  var gitterRoom;
+  var gitterRoom, matrixRoom;
   let archiveBaseURI;
   
   if (GITTER) {
@@ -684,8 +688,8 @@ async function doRoom (room, config) {
 
   console.log('    solid channel ' + solidChannel)
 
-  function gitterFindEarliestId (messages) {
-    var sortMe = messages.map(gitterMessage => [gitterMessage.sent, gitterMessage])
+  function messagesFindEarliestId (messages) {
+    var sortMe = messages.map(messageObject => [messageObject.created, messageObject])
     if (sortMe.length === 0) return null
     sortMe.sort()
     const earliest = sortMe[0][1]
@@ -703,40 +707,67 @@ async function doRoom (room, config) {
     console.log(JSON.stringify(room))
   }
 
-  async function gitterCatchup () {
+
+  async function catchup () {
     newMessages = 0
     oldMessages = 0
-    gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
-    var messages = await gitterRoom.chatMessages() // @@@@ ?
-    if (messages.length !== 50) console.log('  Messages read: ' + messages.length)
-    for (let gitterMessage of messages) {
-      await gitterStoreMessage(solidChannel, gitterMessage, archiveBaseURI)
+    let messages = [];
+    if (GITTER) {
+      gitterRoom = gitterRoom || await gitter.rooms.find(room.id)
+      let gitterMessages = await gitterRoom.chatMessages() // @@@@ ?
+
+      if (gitterMessages.length !== 50) console.log('  Messages read: ' + messages.length)
+      for (let gitterMessage of gitterMessages) {
+        let message = new Message(gitterMessage, false);
+        await storeMessage(solidChannel, message, archiveBaseURI, gitterMessageObject = gitterMessage)
+        messages.push(message);
+      }
+    } else {
+      matrixRoom = await matrixClient.roomInitialSync(roomId, 100);
+      console.log("--matrixroom--")
+      console.log(matrixRoom)
+
+      for (let matrixMessage of matrixRoom.messages.chunk) {
+        if (matrixMessage.type != "m.room.message") {
+          console.log("Currently gitter-solid only supports saving messages. Skipping " + matrixMessage.type)
+          continue;
+        }
+        let message = new Message(matrixMessage, true);
+        await storeMessage(solidChannel, message, archiveBaseURI);
+        messages.push(message);
+
+      }
     }
+
     await rdfSaveEverythingBack()
     if (oldMessages) {
       console.log('End catchup. Found message we already had.')
       return true
     }
-    var newId = gitterFindEarliestId(messages)
+    var newId = messagesFindEarliestId(messages)
     if (!newId) {
       console.log('Catchup found no gitter messages.')
       return true
     }
-    for (let i = 0; i < 30; i++) {
-      newId = await gitterExtendBeforeId(newId)
-      if (!newId) {
-        console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
-        return true
+    // TODO implement for Matrix
+    if (GITTER) {
+      for (let i = 0; i < 30; i++) {
+        newId = await gitterExtendBeforeId(newId)
+        if (!newId) {
+          console.log(`End catchup. No more gitter messages after ${newMessages} new messages.`)
+          return true
+        }
+        if (oldMessages) {
+          console.log(`End catchup. Found message we already had, after ${newMessages} .`)
+          return true
+        }
+        console.log(' ... pause ...')
+        await delayMs(3000) // ms  give the API a rest
       }
-      if (oldMessages) {
-        console.log(`End catchup. Found message we already had, after ${newMessages} .`)
-        return true
-      }
-      console.log(' ... pause ...')
-      await delayMs(3000) // ms  give the API a rest
+      console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
+      return false
     }
-    console.log(`FINISHED 30 CATCHUP SESSIONS. NOT DONE after ${newMessages} new messages `)
-    return false
+
   }
 
   async function initialize () {
@@ -787,7 +818,7 @@ async function doRoom (room, config) {
       console.log('Text: ', gitterEvent.model.text)
       console.log('gitterEvent object: ', JSON.stringify(gitterEvent))
       if (gitterEvent.operation === 'create') {
-        var solidMessage = await gitterStoreMessage(solidChannel, gitterEvent.model, archiveBaseURI)
+        var solidMessage = await storeMessage(solidChannel, gitterEvent.model, archiveBaseURI)
         console.log('creating solid message ' + solidMessage)
         var sts = store.connectedStatements(solidMessage)
         try {
@@ -825,7 +856,7 @@ async function doRoom (room, config) {
       return null
     }
     for (let gitterMessage of messages) {
-      await gitterStoreMessage(solidChannel, gitterMessage, archiveBaseURI)
+      await storeMessage(solidChannel, gitterMessage, archiveBaseURI)
     }
     await rdfSaveEverythingBack()
     let m1 = await rdfFirstMessage(solidChannel)
@@ -842,7 +873,7 @@ async function doRoom (room, config) {
     console.log('First make the solid chat object if necessary:')
     await initialize()
     console.log('Now first catchup  recent messages:')
-    var catchupDone = await gitterCatchup()
+    var catchupDone = await catchup()
     if (catchupDone) {
       console.log('Initial catchup gave no messages, so no archive necessary.✅')
       return null
@@ -864,10 +895,10 @@ async function doRoom (room, config) {
   } else if (command === 'archive') {
     await rdfExtendArchiveBack()
   } else if (command === 'catchup') {
-    await gitterCatchup()
+    await catchup()
   } else if (command === 'stream') {
     console.log('catching up to make sure we don\'t miss any when we stream')
-    var ok = await gitterCatchup()
+    var ok = await catchup()
     if (!ok) {
       console.error('catching up FAILED so NOT starting stream as we would get a gap!')
       throw new Error('Not caught up. Cant stream.')

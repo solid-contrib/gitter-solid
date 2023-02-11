@@ -1,16 +1,14 @@
-// Gitter chat data to solid
-// like GITTER_TOKEN 1223487...984 node solid-gitter.js
-// See https://developer.gitter.im/docs/welcome
-// and https://developer.gitter.im/docs/rest-api
-
-// import { Matrix } from 'matrix-api/Matrix';
-
-// const Matrix = require('matrix-api/Matrix').Matrix  // https://www.npmjs.com/package/matrix-api
-// import { Matrix } from 'matrix-api/Matrix';
-// import { Matrix } from 'matrix-api/Matrix.js';
+// Gitter or Marix chat data to Solid Chat
 
 import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-sdk
-  // API Docs: https://matrix.org/docs/guides/usage-of-the-matrix-js-sdk
+
+/*
+  The Matrix spec: https://spec.matrix.org/latest/#common-concepts
+
+  The client-server bit of the matrix spec: https://spec.matrix.org/v1.5/client-server-api
+
+  Documentation for the SDK we are using:  https://matrix.org/docs/guides/usage-of-the-matrix-js-sdk
+*/
 
 import myCrypto from 'crypto'
 
@@ -23,9 +21,8 @@ import { SolidNodeClient } from 'solid-node-client'
 import * as  readlineSync from 'readline-sync'
 import * as readline from 'readline'
 
-var matrixUserId = "@timbllee:matrix.org";
-var matrixAccessToken = "syt_dGltYmxsZWU_lCSmPVdmmykTLyUJrZws_1nKivD";
-
+const matrixUserId = "@timblbot:matrix.org";
+var matrixAccessToken = "syt_dGltYmxib3Q_VzTxNWBDHNBsDOSrNiyY_4E5A8j";
 
 dotenv.config()
 
@@ -73,10 +70,13 @@ if (typeof crypto === 'undefined') {
 // see https://www.npmjs.com/package/node-g
 
 
-let gitter, GITTER_TOKEN
+let gitter, GITTER_TOKEN, MATRIX_PASSWORD
 
 if (GITTER) {
   GITTER_TOKEN = process.env.GITTER_TOKEN
+}
+if (MATRIX) {
+    MATRIX_PASSWORD = process.env.MATRIX_PASSWORD
 }
 const ns = solidNamespace($rdf)
 if (!ns.wf) {
@@ -85,14 +85,14 @@ if (!ns.wf) {
 
 ///////////// MATRIX /////////////////
 
-const MESSAGES_AT_A_TIME = 20 // make biggers
+const MESSAGES_AT_A_TIME = 1000 // make biggers
 
 let roomList = []
 
 
 function setRoomList() {
     roomList = matrixClient.getRooms();
-    console.log('   setRoomList ' + show(roomList))
+    // console.log('   setRoomList ' + show(roomList))
     roomList.sort(function (a, b) {
         // < 0 = a comes first (lower index) - we want high indexes = newer
         var aMsg = a.timeline[a.timeline.length - 1];
@@ -122,7 +122,7 @@ function showRoom (room) {
     var myMembership = room.getMyMembership();
     const star = myMembership ? '*' : ' '
     var roomName = room.name
-    return ` ${roomName} %s (${room.getJoinedMembers().length} members)${star}  ${dateStr}`
+    return ` "${roomName}" (${room.getJoinedMembers().length} members)${star}  ${dateStr}`
 }
 
 function printRoomList() {
@@ -166,7 +166,7 @@ function showMessage (event, myUserId) {
         if (event.status === sdk.EventStatus.SENDING) {
             separator = "...";
         } else if (event.status === sdk.EventStatus.NOT_SENT) {
-            separator = " x ";
+            separator = "   ";
         }
     }
     var body = "";
@@ -187,53 +187,125 @@ function showMessage (event, myUserId) {
         separator = "---";
     } else {
         // random message event
-        body = "[Message: " + event.getType() + " Content: " + JSON.stringify(event.getContent()) + "]";
+        body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(event.getContent()) + "]";
         separator = "---";
     }
     return `[${time}] ${name}: ${separator}; ${body}`
 }
 
-function loadRoomMessages (room) {
-    console.log(`loadRoomMessages: room name ${room.name}`)
-    // console.log(show(room))
-    matrixClient.scrollback(room, MESSAGES_AT_A_TIME).then(
-        function (room) {
-            const mostRecentMessages = room.timeline;
-            for (var i = 0; i < mostRecentMessages.length; i++) {
-                console.log(showMessage(mostRecentMessages[i], room.myUserId));
-            }
-            rl.prompt();
-        },
-        function (err) {
-            console.error("loadRoomMessages ##### Error: %s", err);
-        },
-    );
+
+function processMatrixMessage (message) {
+    // console.log(showMessage(message, room.myUserId));
+
+    const messageType = message.type
+    const sender = message.getSender()
+    const fromMe =  (sender === matrixUserId    )
+
+    const time = new Date(message.getTs()).toISOString()
+
+    const isState = message.isState()
+
+    if (messageType === "m.room.message") {
+        body = message.getContent().body; // Beware: Multi media
+
+    } else if (isState) { //Save the new state in metadata about the chat
+
+    } else { // not state data: Messages
+        // if (!earliestMessage || earliestMessage > time) earliestMessage = time
+        // if (!latestMessage || latestMessage < time) latestMessage = time
+    }
+
 }
 
+
+async function loadRoomMessages (room) {
+    console.log(`loadRoomMessages: room name ${room.name}`)
+    // console.log(show(room))
+    const room2 = await matrixClient.scrollback(room, MESSAGES_AT_A_TIME);
+
+    var earliestMessage = null
+    var latestMessage = null
+    var events = 0
+    var messages = 0
+    const messageTypes = {}
+    const mostRecentMessages = room2.timeline;
+    for (var i = 0; i < mostRecentMessages.length; i++) {
+        const message = mostRecentMessages[i]
+        events += 1
+        processMatrixMessage(message)
+        // console.log(showMessage(message, room.myUserId));
+        const messageType = message.msgtype
+        messageTypes[messageType] = true
+        const sender = message.getSender()
+        const fromMe =  (sender === matrixUserId    )
+
+        const time = new Date(message.getTs()).toISOString()
+
+        const isState = message.isState()
+
+        if (messageType === "m.room.message") {
+            body = message.getContent().body; // Beware: Multi media
+            messages += 1
+
+        } else if (isState) { //Save the new state in metadata about the chat
+
+        } else { // not state data: Messages
+            if (!earliestMessage || earliestMessage > time) earliestMessage = time
+            if (!latestMessage || latestMessage < time) latestMessage = time
+        }
+    }
+    console.log()
+    console.log(`Room name ${room.name}`)
+    console.log('   Events ', events)
+    console.log('   Messages ', messages)
+    console.log('   Earliest message ', earliestMessage)
+    console.log('   Latest message   ', latestMessage)
+    for (var key in messageTypes) {
+        console.log(`   type seen:     ${key}`)
+    }
+}
+
+function matrixRoomDebug (room) {
+    for (let i = 0; i < room.timeline.length; i++) {
+        const timeline = room.timeline[i]
+        console.log(`  timeline status ${timeline.status}`)
+        if (room.timeline[i].status == sdk.EventStatus.NOT_SENT) {
+            notSentEvent = room.timeline[i];
+            break;
+        }
+    }
+
+    for (let prop in room) {
+        const typ = typeof room[prop]
+        console.log(`   ${prop}: ${show(room[prop])}`) // ${room[prop]}
+    }
+}
+
+async function processRoom (room) {
+    console.log(`\n Room <${room.roomId}> ${showRoom(room)}`)
+    var myMembership = room.getMyMembership();
+    //console.log('myMembership ' + (show(myMembership)))
+    await loadRoomMessages(room)
+    await loadRoomMessages(room) // what happens if we do it twice?
+
+}
 async function processRooms () {
-    for (let i = 0; i < roomList.length; i++) {
-        const room = roomList[i]
-        console.log(`\n Room "${i}": <${room.roomId}> ${showRoom(room)}`)
-        console.log(`    timeline(${room.timeline.length}`)
-        // console.log(JSON.stringify(room))
-
-        var myMembership = room.getMyMembership();
-        console.log('myMembership ' + (show(myMembership)))
-
-        for (let i = 0; i < room.timeline.length; i++) {
-            const timeline = room.timeline[i]
-            console.log(`  timeline status ${timeline.status}`)
-            if (room.timeline[i].status == sdk.EventStatus.NOT_SENT) {
-                notSentEvent = room.timeline[i];
-                break;
+    if (targetRoomName === 'all') {
+        for (let i = 0; i < roomList.length; i++) {
+            const room = roomList[i]
+            processRoom(room)
+        }
+    } else {
+        console.log(`Processing ${roomList.length} rooms`)
+        for (let i = 0; i < roomList.length; i++) {
+            const room = roomList[i]
+            if (targetRoomName === room.name) {
+                console.log(` Found room <${room.roomId}> as name "${targetRoomName}"`)
+                processRoom(room)
+                return;
             }
         }
-
-        for (let prop in room) {
-            const typ = typeof room[prop]
-            console.log(`   ${prop}: ${show(room[prop])}`) // ${room[prop]}
-        }
-        loadRoomMessages(room)
+        console.error(`Error: Target rooom name ${targetRoomName} not found`)
     }
 }
 
@@ -244,6 +316,12 @@ async function initialiseMatrix() {
       accessToken: matrixAccessToken,
       userId: matrixUserId,
   });
+
+  // console.log('!@@@@@ MATRIX_PASSWORD' , MATRIX_PASSWORD)
+  const response = matrixClient.login("m.login.password", {"user": "timblbot", "password": MATRIX_PASSWORD})
+  const accessToken = response.access_token
+  // if (!accessToken) throw new Error('No access token from matrix')
+  // .then((response) => { console.log(response.access_token);});
 
   const client = matrixClient
   await client.startClient({ initialSyncLimit: 10 });
@@ -326,8 +404,6 @@ async function init() {
   }
 }
 
-
-
 async function confirm (q) {
   while (1) {
     var a = (await readlineSync.question(q+' (y/n)? ')).trim().toLowerCase();
@@ -336,6 +412,8 @@ async function confirm (q) {
     console.log('  Please reply y or n')
   }
 }
+
+
 
 const normalOptions = {
 //   headers: {Authorization: 'Bearer ' + SOLID_TOKEN}
@@ -1012,18 +1090,18 @@ async function go () {
     }
     console.log('You are logged into gitter as:', user.username)
     rooms = await user.rooms()
-  } else {
 
-    // function (err, data) {
-    //     console.log("Public Rooms: %s", JSON.stringify(data));
-    // });
-  }
+} else if (MATRIX) {
+
+    rl.setPrompt("> ");
+    rl.on("line", function (line) {})
+    matrixClient.startClient(numMessagesToShow); // messages for each room.
+}
+   //// if (targetRoomName === 'all') { }
+
 
   console.log('rooms ' + rooms.length)
 
-  rl.setPrompt("> ");
-  rl.on("line", function (line) {})
-  matrixClient.startClient(numMessagesToShow); // messages for each room.
 
   return
 

@@ -22,7 +22,9 @@ import * as  readlineSync from 'readline-sync'
 import * as readline from 'readline'
 
 const matrixUserId = "@timblbot:matrix.org";
-var matrixAccessToken = "syt_dGltYmxib3Q_VzTxNWBDHNBsDOSrNiyY_4E5A8j";
+const baseUrl = "http://matrix.org"
+
+// const  matrixAccessToken = "syt_dGltYmxib3Q_VzTxNWBDHNBsDOSrNiyY_4E5A8j";
 
 dotenv.config()
 
@@ -85,7 +87,7 @@ if (!ns.wf) {
 
 ///////////// MATRIX /////////////////
 
-const MESSAGES_AT_A_TIME = 1000 // make biggers
+const MESSAGES_AT_A_TIME = 1000
 
 let roomList = []
 
@@ -183,7 +185,12 @@ function showMessage (event, myUserId) {
         if (event.getStateKey().length > 0) {
             stateName += " (" + event.getStateKey() + ")";
         }
-        body = "[State: " + stateName + " updated to: " + JSON.stringify(event.getContent()) + "]";
+        const content = event.getContent()
+        body = "[State: " + stateName + " updated to: " + JSON.stringify(content) + "]";
+        if (content.avatar_url && content.avatar_url.startsWith('mxc:')) {
+            const avatarHTTPUrl = matrixClient.mxcUrlToHttp(content.avatar_url, null, null, null, true) // Don;t get thumbnail
+            console.log('    max convertd to ', avatarHTTPUrl)
+        }
         separator = "---";
     } else {
         // random message event
@@ -194,19 +201,19 @@ function showMessage (event, myUserId) {
 }
 
 
-function processMatrixMessage (message) {
-    // console.log(showMessage(message, room.myUserId));
+function processMatrixItem(item) {
 
-    const messageType = message.type
-    const sender = message.getSender()
+    const event = item.event
+    const eventType = event.type
+    const sender = item.getSender()
     const fromMe =  (sender === matrixUserId    )
 
-    const time = new Date(message.getTs()).toISOString()
+    const time = new Date(item.getTs()).toISOString()
 
-    const isState = message.isState()
+    const isState = item.isState()
 
-    if (messageType === "m.room.message") {
-        body = message.getContent().body; // Beware: Multi media
+    if (eventType === "m.room.message") {
+        const body = item.getContent().body; // Beware: Multi media
 
     } else if (isState) { //Save the new state in metadata about the chat
 
@@ -221,37 +228,49 @@ function processMatrixMessage (message) {
 async function loadRoomMessages (room) {
     console.log(`loadRoomMessages: room name ${room.name}`)
     // console.log(show(room))
-    const room2 = await matrixClient.scrollback(room, MESSAGES_AT_A_TIME);
-
+    const result = await matrixClient.scrollback(room, MESSAGES_AT_A_TIME);
+    console.log('  result of scrollback ', show(result))
     var earliestMessage = null
     var latestMessage = null
     var events = 0
     var messages = 0
-    const messageTypes = {}
-    const mostRecentMessages = room2.timeline;
-    for (var i = 0; i < mostRecentMessages.length; i++) {
-        const message = mostRecentMessages[i]
+    const eventTypes = {}
+    const timeline = result.timeline;
+    for (var i = 0; i < timeline.length; i++) {
+        const item = timeline[i]
+        const event = item.event
         events += 1
-        processMatrixMessage(message)
-        // console.log(showMessage(message, room.myUserId));
-        const messageType = message.msgtype
-        messageTypes[messageType] = true
-        const sender = message.getSender()
-        const fromMe =  (sender === matrixUserId    )
+        // processMatrixItem(item)
+        console.log(showMessage(item, room.myUserId));
 
-        const time = new Date(message.getTs()).toISOString()
+        // console.log('   item.event: ', item.event)
 
-        const isState = message.isState()
+        for (let prop in item)  eventTypes[prop] = "item";
+        for (let prop1 in event)  eventTypes[prop1] = "event";
 
-        if (messageType === "m.room.message") {
-            body = message.getContent().body; // Beware: Multi media
+        const eventType = event.type
+
+        const sender = event.sender ? event.sender.name : event.getSender(); // from terminal
+
+        const fromMe =  (sender === matrixUserId)
+
+        if (eventType === "m.room.message") {
+            let body
+            if (event.content) {
+                body = event.content
+            } else {
+                body = event.getContent().body; // Beware: Multi media
+            }
+            if (event.getTs) {
+                const time = new Date(event.getTs()).toISOString()
+                if (!earliestMessage || earliestMessage > time) earliestMessage = time
+                if (!latestMessage || latestMessage < time) latestMessage = time
+            } else  {
+
+            }
+
             messages += 1
-
-        } else if (isState) { //Save the new state in metadata about the chat
-
         } else { // not state data: Messages
-            if (!earliestMessage || earliestMessage > time) earliestMessage = time
-            if (!latestMessage || latestMessage < time) latestMessage = time
         }
     }
     console.log()
@@ -260,8 +279,8 @@ async function loadRoomMessages (room) {
     console.log('   Messages ', messages)
     console.log('   Earliest message ', earliestMessage)
     console.log('   Latest message   ', latestMessage)
-    for (var key in messageTypes) {
-        console.log(`   type seen:     ${key}`)
+    for (var key in eventTypes) {
+        // console.log(`   type seen:     ${key}: ${eventTypes[key]}`)
     }
 }
 
@@ -309,25 +328,27 @@ async function processRooms () {
     }
 }
 
+
 async function initialiseMatrix() {
 
-  matrixClient = sdk.createClient({
-      baseUrl: "http://matrix.org",
-      accessToken: matrixAccessToken,
-      userId: matrixUserId,
-  });
+
+    matrixClient = sdk.createClient({ baseUrl: "https://matrix.org/"});
+    const response = await matrixClient.login("m.login.password", {"user": "timblbot", "password": MATRIX_PASSWORD})
+    console.log('  login returned', response);
+
 
   // console.log('!@@@@@ MATRIX_PASSWORD' , MATRIX_PASSWORD)
-  const response = matrixClient.login("m.login.password", {"user": "timblbot", "password": MATRIX_PASSWORD})
-  const accessToken = response.access_token
-  // if (!accessToken) throw new Error('No access token from matrix')
-  // .then((response) => { console.log(response.access_token);});
+    console.log(' New matrix client with base ', baseUrl)
+    // const response = matrixClient.login("m.login.password", {"user": "timblbot", "password": MATRIX_PASSWORD})
+    const accessToken = response.access_token
+    // if (!accessToken) throw new Error('No access token from matrix')
+    // .then((response) => { console.log(response.access_token);});
 
-  const client = matrixClient
-  await client.startClient({ initialSyncLimit: 10 });
+    const client = matrixClient
+    await client.startClient({ initialSyncLimit: 10 });
 
 
-  client.once("sync", async function (state, prevState, res) {
+    client.once("sync", async function (state, prevState, res) {
       if (state === "PREPARED") {
           console.log("prepared");
           await processRooms()
@@ -350,7 +371,7 @@ async function initialiseMatrix() {
 
   matrixClient.on("Room", function () {
       setRoomList();
-      console.log('on Room room list: ' + roomList.length + ' rooms')
+      // console.log('on Room room list: ' + roomList.length + ' rooms')
   });
  }
 

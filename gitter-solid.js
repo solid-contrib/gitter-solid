@@ -207,10 +207,7 @@ async function authorFromMatrix (userData, config) {
     toBePut[doc.uri] = true
   }
 
-  // console.log('  authorFromMatrix config', config)
-  const peopleBaseURI = config.publicUserFolder.uri
-  // console.log('Base for user data ', peopleBaseURI)
-  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
+  const peopleBaseURI = config.publicUserFolder.  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
   console.log('     person id: ' + userData.id, userData)
   console.log('     person solid: ' + person)
   if (peopleDone[person.uri]) {
@@ -327,11 +324,6 @@ async function loadRoomMessages (room, config) {
         events += 1
         await handleMatrixMessage(item, room, config);
 
-        // console.log('   item.event: ', item.event)
-
-        // for (let prop in item)  eventTypes[prop] = "item";
-        // for (let prop1 in event)  eventTypes[prop1] = "event";
-
         const eventType = event.type
 
         const sender = event.sender ? event.sender.name : event.getSender(); // from terminal
@@ -349,7 +341,8 @@ async function loadRoomMessages (room, config) {
                 if (!earliestMessage || earliestMessage > time) earliestMessage = time
                 if (!latestMessage || latestMessage < time) latestMessage = time
             } else  {
-                console.log('     wot no time??')
+                console.log('     wot no time?? getTs', event.getTs)
+                console.log('     wot no time?? event', event)
             }
 
             messages += 1

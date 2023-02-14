@@ -147,7 +147,7 @@ function show (x) {
 
 // individualChatFolder', 'privateChatFolder', 'publicChatFolder
 function archiveBaseURIFromMatrixRoom (room, config) {
-    console.log('archiveBaseURIFromMatrixRoom ' , config.publicChatFolder.uri)
+    // console.log('archiveBaseURIFromMatrixRoom ' , config.publicChatFolder.uri)
     return config.publicChatFolder.uri
 }
 
@@ -185,7 +185,6 @@ function chatChannelFromMatrixRoom (room, config) {
 
 async function authorFromMatrix (userData, config) {
     // console.log('   @@@ authorFromMatrix in handleMatrixMessage' , config)
-
   /* user state looks like
     "avatar_url":"mxc://matrix.org/QGLfsOamRItelTTqJypDlicO",
     "displayname":"Mal Burns",
@@ -207,7 +206,8 @@ async function authorFromMatrix (userData, config) {
     toBePut[doc.uri] = true
   }
 
-  const peopleBaseURI = config.publicUserFolder.  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
+  const peopleBaseURI = config.publicUserFolder.uri
+  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
   console.log('     person id: ' + userData.id, userData)
   console.log('     person solid: ' + person)
   if (peopleDone[person.uri]) {
@@ -240,12 +240,42 @@ async function authorFromMatrix (userData, config) {
   return person
 }
 
+/* the main matrix event handler.
+
+For example a replacement rich text message content can look like:
+
+{"body":"* In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/
+  Data Privacy Is Now a Must-Hit US State of the Union Topic",
+  "format":"org.matrix.custom.html",
+  "formatted_body":"* In other new … <a href=\\"https://www.wired.com/story/biden-2023-sotu-data-privacy/\\" rel=\\"nofollow noopener noreferrer\\" target=\\"_blank\\" class=\\"link \\">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic",
+  "m.new_content":
+        {"body":"In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic",
+        "format":"org.matrix.custom.html",
+        "formatted_body":"In other new … <a href=\\"https://www.wired.com/story/biden-2023-sotu-data-privacy/\\" rel=\\"nofollow noopener noreferrer\\" target=\\"_blank\\" class=\\"link \\">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic",
+        "msgtype":"m.text"},
+     "m.relates_to":{"event_id":"$167631953831IKmeW:gitter.im","rel_type":"m.replace"},
+        "msgtype":"m.text"}]
+
+aka
+
+content: {
+  body: '* In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic',
+  format: 'org.matrix.custom.html',
+  formatted_body: '* In other new … <a href="https://www.wired.com/story/biden-2023-sotu-data-privacy/" rel="nofollow noopener noreferrer" target="_blank" class="link ">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic',
+  'm.new_content': {
+    body: 'In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic',
+    format: 'org.matrix.custom.html',
+    formatted_body: 'In other new … <a href="https://www.wired.com/story/biden-2023-sotu-data-privacy/" rel="nofollow noopener noreferrer" target="_blank" class="link ">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic',
+    msgtype: 'm.text'
+  },
+  'm.relates_to': { event_id: '$167631953831IKmeW:gitter.im', rel_type: 'm.replace' },
+  msgtype: 'm.text'
+},
+ev
+*/
 async function handleMatrixMessage (event, room, config) {
-    // console.log('   @@@ event in handleMatrixMessage' , event)
     const userData = {}
     let sender = event.getSender() // like   @timbl:matrix.org
-    console.log(' handleMatrixMessage sendeingRoomMember ', sender)
-    // const sender = sendeingRoomMember.userId
     if (sender.startsWith('@')) sender = sender.slice(1) // strip Sigil [sic]
     userData.id = 'matrix-' + sender  // This is what the gitter folks did
     userData.nick = sender.split(':')[0]
@@ -263,6 +293,11 @@ async function handleMatrixMessage (event, room, config) {
     const eventType = event.getType()
     const eventId = event.event.event_id
     console.log('   Event id ', eventId)
+    var text, richText
+    const isState = event.isState()
+    const flag = event.isState() ? 'S' : 'M'
+
+    console.log(`\n<<<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}":-`)
 
     if (eventType === 'm.reaction') {
         // Like {"m.relates_to":{"event_id":"$167611182453162yhMpM:matrix.org","key":"👋","rel_type":"m.annotation"}}
@@ -287,8 +322,25 @@ async function handleMatrixMessage (event, room, config) {
         const solidPerson = await authorFromMatrix(userData, config)
     } else {
         if (eventType === "m.room.message") {
-            body = event.getContent().body;
-            console.log(' m.room.message event: ', event)
+            const content = event.getContent()
+            if (content.msgtype === 'm.emote') {
+                console.log(' Hey -- emote', content)
+
+            } else if (content.msgtype === 'm.text') {
+                text = content.body
+                if (content.formatted_body) {
+                    if (content.format !== 'org.matrix.custom.html') {
+                        throw new Error(`Event rich message has format "${content.format}" expected "org.matrix.custom.html"`)
+                    }
+                    richText = content.formatted_body
+                    console.log(' m.room.message contents: ', content)
+                }
+            } else {
+                console.log(` @@ checkout this ${content.msgtype} content`, content)
+                console.log(` @@ checkout this ${content.msgtype} event`, event)
+                // throw new Error(`Event m.message has message type "${content.msgtype}" expected "m.text"`)
+            }
+
         }
         // random message event
         body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(event.getContent()) + "]";
@@ -296,15 +348,17 @@ async function handleMatrixMessage (event, room, config) {
         const messageData = { time, sender, body }
         const chatChannel = chatChannelFromMatrixRoom(room, config)
 
-        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text: body }
+        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, richText: richText  }
 
         console.log('  @@ equivalent gitter message ', gitterMessage)
         const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
         const author = await authorFromMatrix(userData, config)
+        if (!gitterMessage.text) {
+           console.log(`Matrix message: No main text in message.`)
+       }
         await storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     }
-    const flag = event.isState() ? 'S' : 'M'
-    console.log(`${flag} [${time}] ${eventType} <${userData.id}> ${name}: ${body}`)
+    console.log(`${flag} >>>> [${time}] ${eventType} <${userData.id}> "${name}": ${body.slice(0,80)}`)
 }
 
 async function loadRoomMessages (room, config) {
@@ -716,6 +770,7 @@ var newMessages = 0
 var oldMessages = 0
 
 async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author) {
+  console.log(`  storeMessage gitterMessage `, gitterMessage)
   var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
   // console.log('        Message sent on date ' + sent)
   var chatDocument = chatDocumentFromDate(chatChannel, sent)
@@ -729,12 +784,15 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     return // alraedy got it
   }
   newMessages += 1
-  // console.log(`NOT got ${gitterMessage.sent} message ${message}`)
 
   store.add(chatChannel, ns.wf('message'), message, chatDocument)
-  store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
-  if (gitterMessage.html && gitterMessage.html !== gitterMessage.text) { // is it new information?
-    store.add(message, ns.sioc('richContent'), gitterMessage.html, chatDocument) // @@ predicate??
+  if (gitterMessage.text) {
+      store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
+  } else {
+      console.log(`storeMessage: No main text in message.`)
+  }
+  if (gitterMessage.richText && gitterMessage.richText !== gitterMessage.text) { // is it new information?
+    store.add(message, ns.sioc('richContent'), gitterMessage.richText, chatDocument) // @@ predicate??
   }
   store.add(message, ns.dct('created'), sent, chatDocument)
   if (gitterMessage.edited) {
@@ -935,9 +993,7 @@ async function doRoom (room, config) {
       console.log('Text: ', gitterEvent.model.text)
       console.log('gitterEvent object: ', JSON.stringify(gitterEvent))
       if (gitterEvent.operation === 'create') {
-
-          var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
-
+        var author = await authorFromGitter(gitterMessage.fromUser, archiveBaseURI)
         var solidMessage = await storeMessage(solidChannel, gitterEvent.model, archiveBaseURI, author)
         console.log('creating solid message ' + solidMessage)
         var sts = store.connectedStatements(solidMessage)

@@ -24,7 +24,8 @@ import * as readline from 'readline'
 const matrixUserId = "@timblbot:matrix.org";
 const baseUrl = "http://matrix.org"
 
-const MATRIx_TO_GITTER_MAP = { '!AdIacJniSdsOmHkZjQ:snopyta.org': 'solid/chat' } // https://matrix.to/#/#solid_chat:gitter.im?utm_source=gitter
+const MATRIX_TO_GITTER_MAP = { '!AdIacJniSdsOmHkZjQ:snopyta.org': 'solid/chat' } // https://matrix.to/#/#solid_chat:gitter.im?utm_source=gitter
+const MESSAGES_AT_A_TIME = 1000
 
 dotenv.config()
 
@@ -74,7 +75,6 @@ if (!ns.wf) {
 
 ///////////// MATRIX /////////////////
 
-const MESSAGES_AT_A_TIME = 100
 
 let roomList = []
 
@@ -157,19 +157,20 @@ function archiveBaseURIFromMatrixRoom (room, config) {
  * https://matrix.to/#/#solid_chat:gitter.im
 */
 function chatChannelFromMatrixRoom (room, config) {
-    const regexp =  /^[a-zA-Z0-9]*_[a-zA-Z0-9]*:gitter\.im$/ ; // These matrix rooms are grandfathered to look like the gitter rooms
+    const regexp =  /^.*:gitter\.im$/ ; // These matrix rooms are grandfathered to look like the gitter rooms
     console.log('chatChannelFromMatrixRoom room: ' + showRoom(room))
     let segment
-    if (MATRIx_TO_GITTER_MAP[room.roomId]) {
-         segment = MATRIx_TO_GITTER_MAP[room.roomId]
+    if (MATRIX_TO_GITTER_MAP[room.roomId]) {
+         segment = MATRIX_TO_GITTER_MAP[room.roomId]
          console.log('Mapped matrix gitter to solid as special case: ', segment)
-    } else if (room.roomId.match(regexp)) {
-        segment = room.roomId.split(':')[0] // first part
-        const [ org, gitterRoomName ] = segment.split('_')
-        segment = host + '/' + encodeURIComponent(gitterRoomName)
-        console.log('Converted matrix gitter to solid as a/b: ', segment)
+    } else if (room.roomId.endsWith('gitter.im')) {
+        if (room.name.match(/^[a-zA-Z0-9]*\/[a-zA-Z0-9]*/)) {
+            segment = room.name.split('_').join('/')
+            console.log('Converted matrix gitter to solid as a/b: ', segment)
+       } else {
+           throw new Error(`Room ${room.roomId} be a gitterim but name ${room.name} not a/b form`)
+       }
     } else if (room.name.match(/[a-zA-Z0-9]*\/[a-zA-Z0-9]*/)) {
-        throw new Error(`Should ${room.roomId} be a gitter room?`)
     } else {
         const [ name, host ] = room.roomId.split(':')
         segment = host + '/' + encodeURIComponent(name)
@@ -272,12 +273,26 @@ content: {
   msgtype: 'm.text'
 },
 ev
+/* ToDo: Look out for threads
+A new relation type (see [MSC2674](https://github.com/matrix-org/matrix-doc/pull/2674))
+`m.thread` expresses that an event belongs to a thread.
+
+```json
+"m.relates_to": {
+  "rel_type": "m.thread",
+  "event_id": "$thread_root"
+}
+```
+
 */
+
 async function handleMatrixMessage (event, room, config) {
     const userData = {}
     let sender = event.getSender() // like   @timbl:matrix.org
     if (sender.startsWith('@')) sender = sender.slice(1) // strip Sigil [sic]
-    userData.id = 'matrix-' + sender  // This is what the gitter folks did
+    // The matrix people add 'gitter-' prefix to a gitter ID when importing ito to matrix.
+    // e do NOT need to add when importing Matrix to Solid.
+    userData.id = sender // Matrix ID
     userData.nick = sender.split(':')[0]
 
     //console.log('    @@@ sender: ', sender)
@@ -293,7 +308,7 @@ async function handleMatrixMessage (event, room, config) {
     const eventType = event.getType()
     const eventId = event.event.event_id
     console.log('   Event id ', eventId)
-    var text, richText
+    var text, richText, threadRoot
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
@@ -340,8 +355,33 @@ async function handleMatrixMessage (event, room, config) {
                 console.log(` @@ checkout this ${content.msgtype} event`, event)
                 // throw new Error(`Event m.message has message type "${content.msgtype}" expected "m.text"`)
             }
-
         }
+        if (content['m.relates_to']) {
+            const relationship = content['m.relates_to']
+            if (relationship.rel_type) {
+                if (relationship.rel_type = 'm.thread')  {
+                    threadRoot = relationship.event_id
+                    console.log(' Possible thread root 1', threadRoot)
+                    const inReplyToRel = relationship['m.in_reply_to'] // @@ use this
+
+                } else {
+                    throw new Error('Unknown relationship type, expoected thread ', relationship.rel_type )
+                }
+            } else {
+                if (relationship['m.in_reply_to']) {
+                    threadRoot = relationship['m.in_reply_to'].event_id
+                    console.log(' Possible thread root 2', threadRoot)
+                } else {
+                    throw new Error ('Relationship with no rel_type or m.in_reply_to')
+                }
+            }
+        }
+                        /*  'm.relates_to': {
+                event_id: '$3RM8gOMg0T-aj_OgJEHiFe819XSBBEarnyz06gA4ikM', // thread root
+                is_falling_back: true,
+                'm.in_reply_to': { event_id: '$O-zdboI_jnlFBdwUQcahkJKCs1ap7VnX-SNG1teuzms' }, // <-- wot
+                rel_type: 'm.thread'
+            */
         // random message event
         body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(event.getContent()) + "]";
 
@@ -377,31 +417,7 @@ async function loadRoomMessages (room, config) {
         const event = item.event
         events += 1
         await handleMatrixMessage(item, room, config);
-
-        const eventType = event.type
-
-        const sender = event.sender ? event.sender.name : event.getSender(); // from terminal
-
-        if (eventType === "m.room.message") {
-            let body
-            if (event.content) {
-                body = event.content
-            } else {
-                body = event.getContent().body; // Beware: Multi media
-            }
-            if (event.getTs) {
-                const time = new Date(event.getTs()).toISOString()
-                console.log('     time ' + time)
-                if (!earliestMessage || earliestMessage > time) earliestMessage = time
-                if (!latestMessage || latestMessage < time) latestMessage = time
-            } else  {
-                console.log('     wot no time?? getTs', event.getTs)
-                console.log('     wot no time?? event', event)
-            }
-
-            messages += 1
-        } else { // not state data: Messages
-        }
+        console.log(' toBePut length ' + Object.keys(toBePut).length)
     }
     console.log()
     console.log(`Room name ${room.name}`)
@@ -409,9 +425,10 @@ async function loadRoomMessages (room, config) {
     console.log('   Messages ', messages)
     console.log('   Earliest message ', earliestMessage)
     console.log('   Latest message   ', latestMessage)
-    for (var key in eventTypes) {
-        // console.log(`   type seen:     ${key}: ${eventTypes[key]}`)
-    }
+
+    console.log(' toBePut length ' + Object.keys(toBePut).length)
+    saveEverythingBack()
+    console.log(' toBePut length ' + Object.keys(toBePut).length)
 }
 
 function matrixRoomDebug (room) {

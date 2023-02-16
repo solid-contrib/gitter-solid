@@ -25,7 +25,7 @@ const matrixUserId = "@timblbot:matrix.org";
 const baseUrl = "http://matrix.org"
 
 const MATRIX_TO_GITTER_MAP = { '!AdIacJniSdsOmHkZjQ:snopyta.org': 'solid/chat' } // https://matrix.to/#/#solid_chat:gitter.im?utm_source=gitter
-const MESSAGES_AT_A_TIME = 1000
+const MESSAGES_AT_A_TIME = 100
 
 dotenv.config()
 
@@ -164,7 +164,7 @@ function chatChannelFromMatrixRoom (room, config) {
          segment = MATRIX_TO_GITTER_MAP[room.roomId]
          console.log('Mapped matrix gitter to solid as special case: ', segment)
     } else if (room.roomId.endsWith('gitter.im')) {
-        if (room.name.match(/^[a-zA-Z0-9]*\/[a-zA-Z0-9]*/)) {
+        if (room.name.match(/^[a-zA-Z0-9-]*\/[a-zA-Z0-9-]*/)) {
             segment = room.name.split('_').join('/')
             console.log('Converted matrix gitter to solid as a/b: ', segment)
        } else {
@@ -273,7 +273,7 @@ content: {
   msgtype: 'm.text'
 },
 ev
-/* ToDo: Look out for threads
+/* ToDo: Look out for threads. Maybe map to https://www.w3.org/Submission/sioc-spec/#term_reply_of
 A new relation type (see [MSC2674](https://github.com/matrix-org/matrix-doc/pull/2674))
 `m.thread` expresses that an event belongs to a thread.
 
@@ -314,15 +314,26 @@ async function handleMatrixMessage (event, room, config) {
 
     console.log(`\n<<<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}":-`)
 
+    if (event.event && event.event.redacted_because) {
+        console.warn('>>>> Ignoring redacted even because:', event.event.redacted_because)
+        return
+    }
+
     if (eventType === 'm.reaction') {
         // Like {"m.relates_to":{"event_id":"$167611182453162yhMpM:matrix.org","key":"👋","rel_type":"m.annotation"}}
         const relatesTo = content['m.relates_to']
-        const emotion = relatesTo.key // Emoit
-        const target = relatesTo.event_id
-        const relType = relatesTo.rel_type // m.annotation
-        if (relType !== 'm.annotation') throw new Error(`Unhandled relatioship type ${relType}`)
-        // @@ Add code to put the solid reaction in the chat file  ... see the toolbar in solid chat
-        console.log(`Ignoring for now reaction ${emotion} to ${target} by ${sender}`)
+        if (relatesTo) {
+            const emotion = relatesTo.key // Emoit
+            const target = relatesTo.event_id
+            const relType = relatesTo.rel_type // m.annotation
+            if (relType !== 'm.annotation') throw new Error(`Unhandled relatioship type ${relType}`)
+            // @@ Add code to put the solid reaction in the chat file  ... see the toolbar in solid chat
+            console.log(`Ignoring for now reaction ${emotion} to ${target} by ${sender}`)
+
+        } else {
+            console.log('  @reaction event we dont understand:, ', event)
+            throw new Error('@@ m.reaction content we dont understand - no relatdeTo')
+        }
     } else if (event.isState()) {
         var stateName = event.getType();
         if (event.getStateKey().length > 0) {
@@ -337,7 +348,6 @@ async function handleMatrixMessage (event, room, config) {
         const solidPerson = await authorFromMatrix(userData, config)
     } else {
         if (eventType === "m.room.message") {
-            const content = event.getContent()
             if (content.msgtype === 'm.emote') {
                 console.log(' Hey -- emote', content)
 
@@ -383,7 +393,7 @@ async function handleMatrixMessage (event, room, config) {
                 rel_type: 'm.thread'
             */
         // random message event
-        body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(event.getContent()) + "]";
+        body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(content) + "]";
 
         const messageData = { time, sender, body }
         const chatChannel = chatChannelFromMatrixRoom(room, config)
@@ -452,14 +462,14 @@ async function processMatrixRoom (room, config) {
     // console.log('   @@@ config in processMatrixRoom' , config)
     //console.log('myMembership ' + (show(myMembership)))
     await loadRoomMessages(room, config)
-    await loadRoomMessages(room, config) // what happens if we do it twice?
+    // await loadRoomMessages(room, config) // what happens if we do it twice?
 
 }
 async function processMatrixRooms (config) {
     if (targetRoomName === 'all') {
         for (let i = 0; i < roomList.length; i++) {
             const room = roomList[i]
-            processMatrixRoom(room)
+            processMatrixRoom(room, config)
         }
     } else {
         console.log(`We see ${roomList.length} Matrix rooms`)

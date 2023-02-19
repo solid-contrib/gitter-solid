@@ -306,6 +306,24 @@ function deSigil (eventId) {
     throw new Error('Matrix event is should hve had a $ ' + eventId)
 }
 
+async function saveUniqueValueToRoom (room, predicate, value, config) {
+    const chatChannel = chatChannelFromMatrixRoom(room, config)
+    const prop = predicate.uri.split('#')[1]
+    await store.fetcher.load(chatChannel)
+    const old = store.each(chatChannel, predicate, null, chatChannel.doc())
+    if (old.length === 1 && old[0].sameTerm(value)) {
+        console.log(`     ( ${prop }unchanged)`)
+    } else {
+        for (const img of old) { // Matrix rooms only hae one avatar at a time
+            console.log(`    removing old ${prop}: ${img}`)
+            store.remove(chatChannel, predicate, img, chatChannel.doc())
+        }
+        console.log(`    adding new ${prop}: ${value}`)
+        store.add(chatChannel, predicate, value, chatChannel.doc())
+        toBePut[chatChannel.doc().uri] = true
+    }
+}
+
 async function handleMatrixMessage (event, room, config) {
     const userData = {}
     let sender = event.getSender() // like   @timbl:matrix.org
@@ -397,6 +415,10 @@ async function handleMatrixMessage (event, room, config) {
             console.log('State: updated ' + solidPerson + ': ', userData)
             console.log('State m.room.member all actions should be done.')
 
+        } else if (event.getType() == 'm.room.name') {
+            if (!content.name) throw new Error(' Missing room name:', event)
+            await saveUniqueValueToRoom(room, ns.vcard('fn'), content.name, config)
+
         } else if (event.getType() == 'm.room.avatar') {
 
             console.log('@@ State m.room.avatar: ' , event)
@@ -404,22 +426,8 @@ async function handleMatrixMessage (event, room, config) {
             const rawAvatar = content.url
             const avatarURL = matrixClient.mxcUrlToHttp(rawAvatar, null, null, null, true)
             const avatar = $rdf.sym(avatarURL)
-
             const roomId = event.event.room_id
-            const chatChannel = chatChannelFromMatrixRoom(room, config)
-            await store.fetcher.load(chatChannel)
-            const old = store.each(chatChannel, ns.vcard('photo'), null, chatChannel.doc())
-            if (old.length === 1 && old[0].sameTerm(avatar)) {
-                console.log('     (avatar unchanged)' )
-            } else {
-                for (const img of old) { // Matrix rooms only hae one avatar at a time
-                    console.log('    removing old avatar ' + img)
-                    store.remove(chatChannel, ns.vcard('photo'), img, chatChannel.doc())
-                }
-                console.log('    adding new avatar ' + avatar)
-                store.add(chatChannel, ns.vcard('photo'), avatar, chatChannel.doc())
-                toBePut[chatChannel.doc().uri] = true                
-            }
+            await saveUniqueValueToRoom(room, ns.vcard('photo'), avatar, config)
 
         } else {
             console.log('State type unknown: ' + event.getType(), event)

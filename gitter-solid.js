@@ -31,6 +31,8 @@ const THREAD_LOAD_RANGE= 90
 const THREAD_SCAN_RANGE = 365
 
 const THREAD_SEARCH_CLIP_DATE = '2022-12-01' // Don't bother trying to hook up threads past that
+const MESSAGE_LOAD_CLIP = '2025-02-14' // Don't load anything  before this
+const MAX_SCROLLS = 100
 dotenv.config()
 
 const command = process.argv[2]
@@ -303,17 +305,23 @@ See https://spec.matrix.org/v1.6/appendices/#matrix-uri-scheme
 
 But see https://spec.matrix.org/v1.6/appendices/#common-identifier-format
 for the sigils which also include '+'
+
+URNs like matrix: URIs are generally less useful than HTTP URIs.
 */
-function toMatrixURI (id) {
-    switch(id[0]) {
-        case '@': return 'matrix:///u/' + id.slice(1)
-        case '$': return 'matrix:///e/' + id.slice(1)
-        case '!': return 'matrix:///room/' + id.slice(1)
-        case '#': return 'matrix:///r/' + id.slice(1)
-        default:
-        throw new Error('Unknown Matrix Sigil ' + id)
+
+function toMatrixThing (id) {
+    const map = {
+        '@': 'u',
+        '$': 'e',
+        '!': 'room',
+        '#': 'r'
     }
+    if (!map[id[0]]) {
+        throw new Error('toMatrixThing: Unknown Matrix Sigil ' + id)
+    }
+    return 'matrix:///' + map[id[0]] + '/' + id.slice(1)
 }
+
 function deSigil (eventId) {
     if (eventId === undefined) {
         return  undefined
@@ -342,6 +350,12 @@ async function saveUniqueValueToRoom (room, predicate, value, config) {
     }
 }
 
+function timeOfEvent(event) {
+    return new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
+}
+
+/*              Handle one Matrix Message
+*/
 async function handleMatrixMessage (event, room, config) {
     const userData = {}
     let sender = event.getSender() // like   @timbl:matrix.org
@@ -364,7 +378,7 @@ async function handleMatrixMessage (event, room, config) {
     const eventType = event.getType()
     const eventId = event.event.event_id
     console.log('   Event id ', eventId)
-    var text, richText, threadRoot, target
+    var text, richText, replyTo, threadRoot, target
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
@@ -393,8 +407,8 @@ async function handleMatrixMessage (event, room, config) {
             threadRoot = target
         } else {
             if (relatesTo['m.in_reply_to']) {
-                threadRoot = deSigil(relatesTo['m.in_reply_to'].event_id)
-                console.log(' Possible thread root 2', threadRoot)
+                replyTo = deSigil(relatesTo['m.in_reply_to'].event_id)
+                console.log(' Straight reply (no thread)' + replyTo)
             } else {
                 console.log('Relationship with no rel_type or m.in_reply_to', relatesTo)
                 throw new Error ('Relationship with no rel_type or m.in_reply_to')
@@ -427,7 +441,37 @@ async function handleMatrixMessage (event, room, config) {
             userData.avatar_url = avatarHTTPUrl
         }
 
-        if (event.getType() === 'm.room.member') {
+        if (event.getType() === 'm.room.canonical_alias') {
+
+            const alias = toMatrixThing(content.alias)
+            // @@
+
+        } else if (event.getType() === 'm.room.topic') {
+
+            await saveUniqueValueToRoom(room, ns.dct('title'), content.topic, config) // Eg public
+
+        } else if (event.getType() === 'm.room.history_visibility') {
+
+            await saveUniqueValueToRoom(room, ns.rdfs('comment'), `history_visibility: ${content.history_visibility}.`, config) // Eg public
+
+        } else if (event.getType() === 'm.room.join_rules') {
+
+            await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Join rules: ${content.join_rules}.`, config) // Eg public
+
+        } else if (event.getType() === 'm.room.create') {
+
+            const created = new Date(content.origin_server_ts)
+            await saveUniqueValueToRoom(room, ns.dct('created'), created, config)
+
+            const creator = toMatrixThing(content.creator)
+            await saveUniqueValueToRoom(room, ns.dct('creator'), creator, config)
+
+            if (content.room_version) {
+                await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Room version: ${content.room_version}`, config)
+            }
+
+
+        } else if (event.getType() === 'm.room.member') {
 
             const solidPerson = await authorFromMatrix(userData, config)
             console.log('State: updated ' + solidPerson + ': ', userData)
@@ -461,7 +505,7 @@ async function handleMatrixMessage (event, room, config) {
 
         } else if (event.getType() === 'org.matrix.msc3946.room_predecessor' || event.getType() === 'org.matrix.room_predecessor') {
             if (!content.predecessor_room_id) throw new Error('predecessor_room_id with no predecessor_room_id')
-            await saveUniqueValueToRoom(room, ns.schema('successorOf'), $rdf.sym(toMatrixURI(content.predecessor_room_id)), config) // @@ better pred?
+            await saveUniqueValueToRoom(room, ns.schema('successorOf'), toMatrixThing(content.predecessor_room_id), config) // @@ better pred?
         } else if (event.getType() === 'm.room.power_levels') {
             // For this room, what user power level is needed for actions and event types?
             // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
@@ -469,7 +513,8 @@ async function handleMatrixMessage (event, room, config) {
 
         } else {
             console.log('State type unknown: ' + event.getType(), event)
-            throw new Error('State type unknown: ' + event.getType())
+
+            // throw new Error('State type unknown: ' + event.getType()) @@TB added bck
         }
 
     } else {
@@ -498,9 +543,9 @@ async function handleMatrixMessage (event, room, config) {
         const messageData = { time, sender, body }
         const chatChannel = chatChannelFromMatrixRoom(room, config)
 
-        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, threadRoot  }
+        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replyTo, threadRoot  }
 
-        console.log('  Equivalent gitter message ', gitterMessage)
+        // console.log('  Equivalent gitter message ', gitterMessage)
         const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
         const author = await authorFromMatrix(userData, config)
         if (!gitterMessage.text) {
@@ -514,8 +559,29 @@ async function handleMatrixMessage (event, room, config) {
 async function loadRoomMessages (room, config) {
     console.log(`loadRoomMessages: room name ${room.name}`)
     // console.log(show(room))
-    const result = await matrixClient.scrollback(room, MESSAGES_AT_A_TIME);
-    console.log('  result of scrollback ', show(result))
+
+    async function getSome () {
+        var result
+        for (var chunk = 0; chunk < MAX_SCROLLS; chunk++) {
+            console.log('Scrollback:')
+            result = await matrixClient.scrollback(room, MESSAGES_AT_A_TIME);
+            console.log(' Result of scrollback ' + show(result)) // show(result)
+            // console.log(`    oldState           `, result.oldState)
+            console.log(`    paginationToken    ${result.oldState.paginationToken}`)
+            const timeline = result.timeline
+            const n = timeline.length
+            console.log(`    (${n}) from ${timeOfEvent(timeline[0])}  to  ${timeOfEvent(timeline[n-1])} `)
+            const earliestDate = timeOfEvent(timeline[0])
+            if (earliestDate < MESSAGE_LOAD_CLIP) {
+                console.log(` Found message ${earliestDate} before ${MESSAGE_LOAD_CLIP} ✅`)
+                break
+            }
+        }
+        return result
+    }
+
+    const result =  await getSome()
+
     var earliestMessage = null
     var latestMessage = null
     var events = 0
@@ -906,7 +972,7 @@ function previousDay (chatFile) {
     return prevChatFile
 }
 
-function matrixURFromEventId (eventId) {
+function matrixThingFromEventId (eventId) {
     if (eventId.startsWith('$')) {
         throw new Error('Should not have initial $' + eventId)
     }
@@ -924,7 +990,7 @@ function matrixURFromEventId (eventId) {
 See also https://github.com/SolidOS/chat-pane/issues/4
 */
 async function findThreadRoot (currentMessage, thread) {
-    const matrixURI = matrixURFromEventId(thread)
+    const matrixURI = matrixThingFromEventId(thread)
     console.log(`findThreadRoot ${currentMessage}, ${thread} -> ${matrixURI}`)
 
     if (thread.startsWith('$')) {
@@ -954,7 +1020,6 @@ async function findThreadRoot (currentMessage, thread) {
                     // console.log('Connected statements', store.connectedStatements(scanning))
                     return  scanning
                 }
-
             }
         }
     }
@@ -970,64 +1035,73 @@ async function findThreadRoot (currentMessage, thread) {
 var newMessages = 0
 var oldMessages = 0
 
+
 async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author) {
-  console.log(`  storeMessage gitterMessage `, gitterMessage)
-  var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
-  // console.log('        Message sent on date ' + sent)
-  var chatDocument = chatDocumentFromDate(chatChannel, sent)
-  var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
-  // console.log('          Solid Message  ' + message)
 
-  await loadIfExists(chatDocument)
-  if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
-    // console.log(`  already got ${gitterMessage.sent} message ${message}`)
-    oldMessages += 1
-    console.log(`storeMessage: Got message already.`)
-    return // alraedy got it
-  }
-  newMessages += 1
+    async function storeRelatedEvent (message, target, predicate, isThread) {
+        console.log(`storeRelatedEvent: ${target}, ${predicate} `)
+        const urn = $rdf.sym('matrix:///e/' + target.slice(1))
+        store.add(message, predicate, urn, chatDocument)
+        if (isThread) {
+            store.add(urn, ns.rdf('type'), ns.sioc('Thread'), chatDocument)
+        }
+        console.log(` storeRelatedEvent: id ${target} -> URN ${urn} `)
 
-  store.add(chatChannel, ns.wf('message'), message, chatDocument)
-  if (gitterMessage.text) {
-      store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
-  } else {
-      console.log(`storeMessage: No main text in message.`)
-  }
-  if (gitterMessage.richText && gitterMessage.richText !== gitterMessage.text) { // is it new information?
+        // Link it in the web if we can find it
+        const threadRootMessage = await findThreadRoot(message, target)
+        console.log('  storeRelatedEvent: threadRootMessage: ' +  threadRootMessage)
+        if (threadRootMessage) {
+            store.add(message, predicate, threadRootMessage, chatDocument) // @@ predicate??
+            if (!message.doc().sameTerm(threadRootMessage.doc())) { // double link
+                await store.fetcher.load(threadRootMessage.doc())
+                store.add(message, predicate, threadRootMessage, threadRootMessage.doc())
+                toBePut[threadRootMessage.doc().uri]
+                console.log(`   storeRelatedEvent: Double linking  ${message} and ${threadRootMessage} ✅`)
+            }
+        } else {
+            console.warn('Could not find Solid message thread correponding to ' + target)
+            store.add(message, predicate, urn, chatDocument) // @@ predicate??
+        }
+    }
+
+    console.log(`  storeMessage gitterMessage `, gitterMessage)
+    var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
+    // console.log('        Message sent on date ' + sent)
+    var chatDocument = chatDocumentFromDate(chatChannel, sent)
+    var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
+    // console.log('          Solid Message  ' + message)
+
+    await loadIfExists(chatDocument)
+    if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
+        // console.log(`  already got ${gitterMessage.sent} message ${message}`)
+        oldMessages += 1
+        console.log(`storeMessage: Got message already.`)
+        return // alraedy got it
+    }
+    newMessages += 1
+
+    store.add(chatChannel, ns.wf('message'), message, chatDocument)
+    if (gitterMessage.text) {
+        store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
+    } else {
+        console.log(`storeMessage: No main text in message.`)
+    }
+    if (gitterMessage.richText && gitterMessage.richText !== gitterMessage.text) { // is it new information?
     store.add(message, ns.sioc('richContent'), gitterMessage.richText, chatDocument) // @@ predicate??
-  }
-  store.add(message, ns.dct('created'), sent, chatDocument)
-  if (gitterMessage.edited) {
+    }
+    store.add(message, ns.dct('created'), sent, chatDocument)
+    if (gitterMessage.edited) {
     store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
-  }
-  if (gitterMessage.threadRoot) {
-
-      // Try using SIOC threads with matrix URIs
-      const urn = $rdf.sym('matrix:///e/' + gitterMessage.threadRoot.slice(1))
-      store.add(message, ns.sioc('has_container'), urn, chatDocument)
-      store.add(urn, ns.rdf('type'), ns.sioc('Thread'), chatDocument)
-      console.log(`storeMessage: thread ${gitterMessage.threadRoot} -> ${urn} `)
-
-      // Link it in the web if we can find it
-      const threadRootMessage = await findThreadRoot(message, gitterMessage.threadRoot)
-      console.log('storeMessage: threadRootMessage: ' +  threadRootMessage)
-      if (threadRootMessage) {
-          store.add(message, ns.sioc('reply_of'), threadRootMessage, chatDocument) // @@ predicate??
-          if (!message.doc().sameTerm(threadRootMessage.doc())) { // double link
-              await store.fetcher.load(threadRootMessage.doc())
-              store.add(message, ns.sioc('reply_of'), threadRootMessage, threadRootMessage.doc())
-              toBePut[threadRootMessage.doc().uri]
-              console.log(`   Double linking  ${message} and ${threadRootMessage} ✅`)
-          }
-      } else {
-          console.warn('Could not find Solid message thread correponding to ' + gitterMessage.threadRoot)
-          store.add(message, ns.sioc('reply_of'), urn, chatDocument) // @@ predicate??
-      }
-  }
-  store.add(message, ns.foaf('maker'), author, chatDocument)
-  // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
-  toBePut[chatDocument.uri] = true
-  return message
+    }
+    if (gitterMessage.threadRoot) {
+        await storeRelatedEvent(message, gitterMessage.threadRoot, ns.sioc('has_container'))
+    } else if (gitterMessage.replyTo) {
+        await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('reply_of'))
+    }
+    store.add(message, ns.foaf('maker'), author, chatDocument)
+    // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
+    toBePut[chatDocument.uri] = true
+    return message
 }
 
 /** Update message friomn update operation

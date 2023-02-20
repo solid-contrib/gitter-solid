@@ -25,7 +25,7 @@ const matrixUserId = "@timblbot:matrix.org";
 const baseUrl = "http://matrix.org"
 
 const MATRIX_TO_GITTER_MAP = { '!AdIacJniSdsOmHkZjQ:snopyta.org': 'solid/chat' } // https://matrix.to/#/#solid_chat:gitter.im?utm_source=gitter
-const MESSAGES_AT_A_TIME = 100
+const MESSAGES_AT_A_TIME = 1000
 const THREAD_SEARCH_RANGE = 90
 const THREAD_LOAD_RANGE= 90
 const THREAD_SCAN_RANGE = 365
@@ -296,6 +296,24 @@ A new relation type (see [MSC2674](https://github.com/matrix-org/matrix-doc/pull
 ```
 
 */
+
+/* Convert internal self-identifying Id into matrix: URI
+
+See https://spec.matrix.org/v1.6/appendices/#matrix-uri-scheme
+
+But see https://spec.matrix.org/v1.6/appendices/#common-identifier-format
+for the sigils which also include '+'
+*/
+function toMatrixURI (id) {
+    switch(id[0]) {
+        case '@': return 'matrix:///u/' + id.slice(1)
+        case '$': return 'matrix:///e/' + id.slice(1)
+        case '!': return 'matrix:///room/' + id.slice(1)
+        case '#': return 'matrix:///r/' + id.slice(1)
+        default:
+        throw new Error('Unknown Matrix Sigil ' + id)
+    }
+}
 function deSigil (eventId) {
     if (eventId === undefined) {
         return  undefined
@@ -409,7 +427,7 @@ async function handleMatrixMessage (event, room, config) {
             userData.avatar_url = avatarHTTPUrl
         }
 
-        if (event.getType() == 'm.room.member') {
+        if (event.getType() === 'm.room.member') {
 
             const solidPerson = await authorFromMatrix(userData, config)
             console.log('State: updated ' + solidPerson + ': ', userData)
@@ -419,7 +437,7 @@ async function handleMatrixMessage (event, room, config) {
             if (!content.name) throw new Error(' Missing room name:', event)
             await saveUniqueValueToRoom(room, ns.vcard('fn'), content.name, config)
 
-        } else if (event.getType() == 'm.room.avatar') {
+        } else if (event.getType() === 'm.room.avatar') {
 
             console.log('@@ State m.room.avatar: ' , event)
             if (!content.url) throw new Error(' Missing room avatar:', event)
@@ -428,6 +446,26 @@ async function handleMatrixMessage (event, room, config) {
             const avatar = $rdf.sym(avatarURL)
             const roomId = event.event.room_id
             await saveUniqueValueToRoom(room, ns.vcard('photo'), avatar, config)
+
+        } else if (event.getType() === 'im.gitter.project_association') {
+            // A gitter extension to link to github
+            //   like: { externalId: '58017436', linkPath: 'solid/mashlib', platform: 'github.com',type: 'GH_REPO'},
+            if (content.type === 'GH_REPO') {
+                const repoURI = `https://${content.platform}/${content.linkPath}/`
+                console.log(`  Got related Githb repo ${repoURI} 👍`)
+                await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym(repoURI), config)
+            } else {
+                throw new Error('Gitter project_association has unnown type: ' + project_association)
+            }
+
+
+        } else if (event.getType() === 'org.matrix.msc3946.room_predecessor' || event.getType() === 'org.matrix.room_predecessor') {
+            if (!content.predecessor_room_id) throw new Error('predecessor_room_id with no predecessor_room_id')
+            await saveUniqueValueToRoom(room, ns.schema('successorOf'), $rdf.sym(toMatrixURI(content.predecessor_room_id)), config) // @@ better pred?
+        } else if (event.getType() === 'm.room.power_levels') {
+            // For this room, what user power level is needed for actions and event types?
+            // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
+            console.warn('Inoring state power levels', content)
 
         } else {
             console.log('State type unknown: ' + event.getType(), event)

@@ -13,6 +13,7 @@ import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-
 import myCrypto from 'crypto'
 
 import * as dotenv from 'dotenv'
+
 import * as $rdf from 'rdflib'
 import solidNamespace from "solid-namespace"
 // import * as solidNamespace  from 'solid-namespace'
@@ -222,8 +223,8 @@ async function authorFromMatrix (userData, config) {
 
   const peopleBaseURI = config.publicUserFolder.uri
   var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
-  console.log('     person id: ' + userData.id, userData)
-  console.log('     person solid: ' + person)
+  console.log(`  person id: ${userData.id} -> solid ${person}`)
+
   if (peopleDone[person.uri]) {
     console.log('    matrix person already saved: ' + person.uri)
     return person
@@ -254,50 +255,6 @@ async function authorFromMatrix (userData, config) {
   return person
 }
 
-/* the main matrix event handler.
-
-For example a replacement rich text message content can look like:
-
-{"body":"* In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/
-  Data Privacy Is Now a Must-Hit US State of the Union Topic",
-  "format":"org.matrix.custom.html",
-  "formatted_body":"* In other new … <a href=\\"https://www.wired.com/story/biden-2023-sotu-data-privacy/\\" rel=\\"nofollow noopener noreferrer\\" target=\\"_blank\\" class=\\"link \\">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic",
-  "m.new_content":
-        {"body":"In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic",
-        "format":"org.matrix.custom.html",
-        "formatted_body":"In other new … <a href=\\"https://www.wired.com/story/biden-2023-sotu-data-privacy/\\" rel=\\"nofollow noopener noreferrer\\" target=\\"_blank\\" class=\\"link \\">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic",
-        "msgtype":"m.text"},
-     "m.relates_to":{"event_id":"$167631953831IKmeW:gitter.im","rel_type":"m.replace"},
-        "msgtype":"m.text"}]
-
-aka
-
-content: {
-  body: '* In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic',
-  format: 'org.matrix.custom.html',
-  formatted_body: '* In other new … <a href="https://www.wired.com/story/biden-2023-sotu-data-privacy/" rel="nofollow noopener noreferrer" target="_blank" class="link ">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic',
-  'm.new_content': {
-    body: 'In other new … https://www.wired.com/story/biden-2023-sotu-data-privacy/  Data Privacy Is Now a Must-Hit US State of the Union Topic',
-    format: 'org.matrix.custom.html',
-    formatted_body: 'In other new … <a href="https://www.wired.com/story/biden-2023-sotu-data-privacy/" rel="nofollow noopener noreferrer" target="_blank" class="link ">https://www.wired.com/story/biden-2023-sotu-data-privacy/</a>  Data Privacy Is Now a Must-Hit US State of the Union Topic',
-    msgtype: 'm.text'
-  },
-  'm.relates_to': { event_id: '$167631953831IKmeW:gitter.im', rel_type: 'm.replace' },
-  msgtype: 'm.text'
-},
-ev
-/* ToDo: Look out for threads. Maybe map to https://www.w3.org/Submission/sioc-spec/#term_reply_of
-A new relation type (see [MSC2674](https://github.com/matrix-org/matrix-doc/pull/2674))
-`m.thread` expresses that an event belongs to a thread.
-
-```json
-"m.relates_to": {
-  "rel_type": "m.thread",
-  "event_id": "$thread_root"
-}
-```
-
-*/
 
 /* Convert internal self-identifying Id into matrix: URI
 
@@ -354,6 +311,16 @@ function timeOfEvent(event) {
     return new Date(event.getTs()).toISOString().replace(/T/, " ").replace(/\..+/, "");
 }
 
+function getRichText (content) {
+    if (content.formatted_body) {
+        if (content.format !== 'org.matrix.custom.html') {
+            throw new Error(`Event rich message has format "${content.format}" expected "org.matrix.custom.html"`)
+        }
+        console.log(' m.room.message contents: ', content)
+        return content.formatted_body
+    }
+    return undefined
+}
 /*              Handle one Matrix Message
 */
 async function handleMatrixMessage (event, room, config) {
@@ -378,7 +345,18 @@ async function handleMatrixMessage (event, room, config) {
     const eventType = event.getType()
     const eventId = event.event.event_id
     console.log('   Event id ', eventId)
-    var text, richText, replyTo, threadRoot, target
+
+    if (false && eventId.endsWith('G-F3w')) {
+        console.log('\n@@@@ G-F3w ###', event)
+        console.log("event.event.content:", event.event.content)
+        console.log("event.content:", event.content)
+        console.log("content:", content)
+        console.log("content['m.relates_to']:", content['m.relates_to'])
+        console.log("event.event.content['m.relates_to']:", event.event.content['m.relates_to'])
+        console.log('\n\n')
+    }
+
+    var text, richText, replyTo, threadRoot, target, isEmotion, replaces
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
@@ -389,7 +367,8 @@ async function handleMatrixMessage (event, room, config) {
         return
     }
 
-    const relatesTo = content['m.relates_to']
+    // Found a case where a thread rel was just misssung fomr the getContrnt() version
+    const relatesTo = content['m.relates_to'] || event.event.content['m.relates_to']
     if (relatesTo) {
         target = deSigil(relatesTo.event_id)
         const relType = relatesTo.rel_type // m.annotation
@@ -401,7 +380,8 @@ async function handleMatrixMessage (event, room, config) {
             }
         } else if (relType === 'm.replace') {
             console.log('   This REPLACES ' + target)
-            // @@@ code me  .. replaces target
+            replaces = target
+            // @@@ code me  .. replaces target -> dct:isReplacedBy
         } else if (relType === 'm.thread') {
             console.log('   This has thread ' + target)
             threadRoot = target
@@ -469,8 +449,6 @@ async function handleMatrixMessage (event, room, config) {
             if (content.room_version) {
                 await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Room version: ${content.room_version}`, config)
             }
-
-
         } else if (event.getType() === 'm.room.member') {
 
             const solidPerson = await authorFromMatrix(userData, config)
@@ -502,7 +480,6 @@ async function handleMatrixMessage (event, room, config) {
                 throw new Error('Gitter project_association has unnown type: ' + project_association)
             }
 
-
         } else if (event.getType() === 'org.matrix.msc3946.room_predecessor' || event.getType() === 'org.matrix.room_predecessor') {
             if (!content.predecessor_room_id) throw new Error('predecessor_room_id with no predecessor_room_id')
             await saveUniqueValueToRoom(room, ns.schema('successorOf'), toMatrixThing(content.predecessor_room_id), config) // @@ better pred?
@@ -521,16 +498,12 @@ async function handleMatrixMessage (event, room, config) {
         if (eventType === "m.room.message") {
             if (content.msgtype === 'm.emote') {
                 console.log(' Hey -- emote', content)
-
+                text = content.body
+                richText = getRichText(content)
+                isEmotion = true
             } else if (content.msgtype === 'm.text') {
                 text = content.body
-                if (content.formatted_body) {
-                    if (content.format !== 'org.matrix.custom.html') {
-                        throw new Error(`Event rich message has format "${content.format}" expected "org.matrix.custom.html"`)
-                    }
-                    richText = content.formatted_body
-                    console.log(' m.room.message contents: ', content)
-                }
+                richText = getRichText(content)
             } else {
                 console.log(` @@ checkout this ${content.msgtype} content`, content)
                 console.log(` @@ checkout this ${content.msgtype} event`, event)
@@ -543,13 +516,13 @@ async function handleMatrixMessage (event, room, config) {
         const messageData = { time, sender, body }
         const chatChannel = chatChannelFromMatrixRoom(room, config)
 
-        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replyTo, threadRoot  }
+        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replaces, replyTo, threadRoot, isEmotion  }
 
         // console.log('  Equivalent gitter message ', gitterMessage)
         const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
         const author = await authorFromMatrix(userData, config)
         if (!gitterMessage.text) {
-           console.log(`Matrix message: No main text in message.`)
+           throw new Error(`Matrix message: No main text in message ${id}`)
        }
         await storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     }
@@ -602,9 +575,53 @@ async function loadRoomMessages (room, config) {
     console.log('   Earliest message ', earliestMessage)
     console.log('   Latest message   ', latestMessage)
 
+    console.log('  toBeLinked length   ' + toBeLinked.length)
+    console.log('  toBeExecuted length ' + toBeExecuted.length)
+    if (toBeLinked.length > 0) {
+        await linkEverything()
+    }
+    await executeEverything()
+
     console.log(' toBePut length ' + Object.keys(toBePut).length)
     saveEverythingBack()
     console.log(' toBePut length ' + Object.keys(toBePut).length)
+}
+
+async function linkEverything () {
+    console.log('linkEverything:  toBeLinked length ' + toBeLinked.length)
+    while(toBeLinked.length > 0) {
+        const { message, predicate, target, reverse } = toBeLinked.pop()
+        const targetMessageURI = eventMap[target]
+
+        // const targetMessage = await findEventById(message, target)
+        if (!targetMessageURI) {
+            // console.log(`  linkEverything: Failed to find ${target} around ${message}`)
+            throw new Error (`linkEverything: Failed to find ${target} near ${message}`)
+        } else {
+            const targetMessage = $rdf.sym(targetMessageURI)
+            console.log(`   Found  ${target} at ${targetMessage} ✅`)
+            if (message.doc().sameTerm(targetMessage.doc())) {
+                console.log(`(Found ${targetMessage} in same doc as ${message}) `)
+            }
+            if (!reverse) {
+                store.add(message, predicate, targetMessage, message.doc())
+                store.add(message, predicate, targetMessage, targetMessage.doc())
+            } else {
+                store.add(targetMessage, predicate, message, message.doc())
+                store.add(targetMessage, predicate, message, targetMessage.doc())
+            }
+            toBePut[message.doc().uri] = true
+            toBePut[targetMessage.doc().uri] = true
+        }
+    }
+}
+
+async function executeEverything () {
+    console.log('execureEverything:  toBeExecuted length ' + toBeExecuted.length)
+    while(toBeExecuted.length > 0) {
+        console.log('Executing one:')
+        toBeExecuted.pop()()
+    }
 }
 
 function matrixRoomDebug (room) {
@@ -989,18 +1006,20 @@ function matrixThingFromEventId (eventId) {
 *
 See also https://github.com/SolidOS/chat-pane/issues/4
 */
-async function findThreadRoot (currentMessage, thread) {
+async function findEventById (currentMessage, thread) {
     const matrixURI = matrixThingFromEventId(thread)
-    console.log(`findThreadRoot ${currentMessage}, ${thread} -> ${matrixURI}`)
+    console.log(`findEventById ${currentMessage}, ${thread} -> ${matrixURI}`)
 
     if (thread.startsWith('$')) {
         throw new Error('Sigil should have been removed from: ' + thread)
     }
+    /*
     const threadFromId = store.any(null, ns.sioc('id'), matrixURI)
     if (threadFromId) {
         console.log(' Found thread from ID 🎉 at ' + threadFromId)
         return threadFromId
     }
+    */
     let possible = $rdf.sym(currentMessage.doc().uri + '#' + thread)
     if (store.connectedStatements(possible).length > 0) {
         console.log(' Found thread root same day 🎉 at ' + possible)
@@ -1009,21 +1028,21 @@ async function findThreadRoot (currentMessage, thread) {
     let loading = possible // scan backwards
 
     for (let i=0; i < THREAD_LOAD_RANGE; i++) {
-        loading = previousDay(loading)
         let exists  = await loadIfExists(loading)
         if (exists) { // new data
             let scanning = possible
             for (let j=0; i < THREAD_SCAN_RANGE; i++) {
-
                 if (store.connectedStatements(scanning).length > 0) { // any mentio  in any doc
                     console.log(' Found past thread root 🎉 at ' + scanning)
                     // console.log('Connected statements', store.connectedStatements(scanning))
                     return  scanning
                 }
+                scanning = previousDay(scanning)
             }
         }
+        loading = previousDay(loading)
     }
-    console.warn('Did not find thread root ', possible)
+    console.warn('Did not find thread root ' + possible)
     return null
 }
 
@@ -1038,38 +1057,35 @@ var oldMessages = 0
 
 async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author) {
 
-    async function storeRelatedEvent (message, target, predicate, isThread) {
+    async function storeRelatedEvent (message, target, predicate, reverse) {
         console.log(`storeRelatedEvent: ${target}, ${predicate} `)
-        const urn = $rdf.sym('matrix:///e/' + target.slice(1))
-        store.add(message, predicate, urn, chatDocument)
-        if (isThread) {
-            store.add(urn, ns.rdf('type'), ns.sioc('Thread'), chatDocument)
-        }
-        console.log(` storeRelatedEvent: id ${target} -> URN ${urn} `)
+        toBeLinked.push({ message, predicate, target, reverse} )
 
         // Link it in the web if we can find it
-        const threadRootMessage = await findThreadRoot(message, target)
+        /*
+        const threadRootMessage = await findEventById(message, target)
         console.log('  storeRelatedEvent: threadRootMessage: ' +  threadRootMessage)
         if (threadRootMessage) {
-            store.add(message, predicate, threadRootMessage, chatDocument) // @@ predicate??
+            store.add(threadRootMessage, predicate, message, chatDocument) // @@ predicate??
             if (!message.doc().sameTerm(threadRootMessage.doc())) { // double link
                 await store.fetcher.load(threadRootMessage.doc())
-                store.add(message, predicate, threadRootMessage, threadRootMessage.doc())
+                store.add(threadRootMessage, predicate, message, threadRootMessage.doc())
                 toBePut[threadRootMessage.doc().uri]
                 console.log(`   storeRelatedEvent: Double linking  ${message} and ${threadRootMessage} ✅`)
             }
         } else {
-            console.warn('Could not find Solid message thread correponding to ' + target)
-            store.add(message, predicate, urn, chatDocument) // @@ predicate??
+            console.warn('Could not find Solid message thread correponding to ⚠️' + target)
+            // store.add(message, predicate, urn, chatDocument) // @@ predicate??
         }
+        */
     }
 
     console.log(`  storeMessage gitterMessage `, gitterMessage)
     var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
-    // console.log('        Message sent on date ' + sent)
     var chatDocument = chatDocumentFromDate(chatChannel, sent)
     var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
     // console.log('          Solid Message  ' + message)
+    eventMap[gitterMessage.id] = message.uri // need to be able to link to it later
 
     await loadIfExists(chatDocument)
     if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
@@ -1079,25 +1095,56 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
         return // alraedy got it
     }
     newMessages += 1
+    const id = matrixThingFromEventId(gitterMessage.id)
 
     store.add(chatChannel, ns.wf('message'), message, chatDocument)
+
+    store.add(message, ns.sioc('id'), id, chatDocument)
+
     if (gitterMessage.text) {
         store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
     } else {
-        console.log(`storeMessage: No main text in message.`)
+        throw new Error(`storeMessage: No main text in message.`)
     }
     if (gitterMessage.richText && gitterMessage.richText !== gitterMessage.text) { // is it new information?
     store.add(message, ns.sioc('richContent'), gitterMessage.richText, chatDocument) // @@ predicate??
     }
     store.add(message, ns.dct('created'), sent, chatDocument)
     if (gitterMessage.edited) {
-    store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
+        store.add(message, ns.dct('modified'), new Date(gitterMessage.edited), chatDocument)
     }
     if (gitterMessage.threadRoot) {
-        await storeRelatedEvent(message, gitterMessage.threadRoot, ns.sioc('has_container'))
-    } else if (gitterMessage.replyTo) {
-        await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('reply_of'))
+
+        console.log(` Storing memberhip by ${gitterMessage.id.slice(-10)} of thread based on ${gitterMessage.threadRoot.slice(-10)} `)
+
+        toBeExecuted.push( function() {
+            console.log('Delayed function:')
+            const threadRootMessageURI = eventMap[gitterMessage.threadRoot]
+            if (!threadRootMessageURI) {
+                console.log('   ## Could not find ' + gitterMessage.threadRoot)
+            } else {
+                const threadRootMessage = $rdf.sym(threadRootMessageURI)
+                const thread = $rdf.sym(threadRootMessage.uri + '-thread')
+                store.add(thread, ns.rdf('type'), ns.sioc('Thread'), thread.doc())
+                store.add(threadRootMessage, ns.sioc('has_reply'), thread, thread.doc())
+
+                store.add(thread, ns.sioc('has_member'), message, thread.doc())
+                store.add(thread, ns.sioc('has_member'), message, message.doc())
+                toBePut[message.doc().uri] = true
+                toBePut[thread.doc().uri] = true
+            }
+        })
+
+        // await storeRelatedEvent(message, gitterMessage.threadRoot, ns.sioc('has_member'))
     }
+    if (gitterMessage.replyTo) {
+        await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('has_reply'), false)
+    }
+    if (gitterMessage.replaces) {
+        await storeRelatedEvent(message, gitterMessage.replaces, ns.dct('isReplacedBy'), true) // reverse
+    }
+
+
     store.add(message, ns.foaf('maker'), author, chatDocument)
     // if (!toBePut[chatDocument.uri]) console.log('   Queueing to write  ' + chatDocument)
     toBePut[chatDocument.uri] = true
@@ -1645,6 +1692,9 @@ async function go () {
 } // go
 
 var toBePut = []
+var toBeLinked = [] // List messages to be linked to thngs we only have matrix ID for
+var toBeExecuted = [] //functions to be run  when we know eventMap
+var eventMap = {} // Map eventid to solid URI
 var peopleDone = {}
 const opts = ['individualChatFolder', 'privateChatFolder', 'publicChatFolder', 'publicUserFolder']
 go()

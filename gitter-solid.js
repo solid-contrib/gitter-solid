@@ -9,11 +9,8 @@ import * as sdk from "matrix-js-sdk";// https://github.com/matrix-org/matrix-js-
 
   Documentation for the SDK we are using:  https://matrix.org/docs/guides/usage-of-the-matrix-js-sdk
 */
-
 import myCrypto from 'crypto'
-
 import * as dotenv from 'dotenv'
-
 import * as $rdf from 'rdflib'
 import solidNamespace from "solid-namespace"
 // import * as solidNamespace  from 'solid-namespace'
@@ -356,15 +353,16 @@ async function handleMatrixMessage (event, room, config) {
         console.log('\n\n')
     }
 
-    var text, richText, replyTo, threadRoot, target, isEmotion, replaces
+    var text, richText, replyTo, threadRoot, target, isEmotion, replaces, metadata
+
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
     console.log(`\n<<<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ...${eventId.slice(-6)}:-`)
 
     if (event.event && event.event.redacted_because) {
-        console.warn('>>>> Ignoring redacted even because:', event.event.redacted_because)
-        return
+        console.warn('>>>> Ignoring redacted event because:', event.event.redacted_because)
+        return time
     }
 
     // Found a case where a thread rel was just misssung fomr the getContrnt() version
@@ -490,43 +488,61 @@ async function handleMatrixMessage (event, room, config) {
 
         } else {
             console.log('State type unknown: ' + event.getType(), event)
-
-            // throw new Error('State type unknown: ' + event.getType()) @@TB added bck
+            throw new Error('State type unknown: ' + event.getType())
         }
 
     } else {
-        if (eventType === "m.room.message") {
+        if (eventType === "m.room.redaction") {
+            console.log(' Ignoring  REDACTED: ' + event.event.redacts)
+            return time
+        } else if (eventType === "m.room.message") {
+            // https://spec.matrix.org/v1.2/client-server-api/#mroommessage-msgtypes
             if (content.msgtype === 'm.emote') {
                 console.log(' Hey -- emote', content)
                 text = content.body
                 richText = getRichText(content)
                 isEmotion = true
-            } else if (content.msgtype === 'm.text') {
+            } else if (content.msgtype === 'm.audio' || content.msgtype === 'm.file' || content.msgtype === 'm.video') {
+                //   body: 'foo.ttl',
+                //    info: { mimetype: 'text/turtle', size: 10 }
+                metadata = content.info // mimetype etc
+                text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
+                console.log('     File url', text)
+            } else if (content.msgtype === 'm.image') {
+                //   body: 'image.png',
+                //   info: { h: 256, mimetype: 'image/png', size: 15119, w: 256,
+                //   'xyz.amorgan.blurhash': 'UBHxOUxt00Icxea#j;j@00Rl_5xns=j@R#j?'},
+                metadata = content.info // mimetype etc
+                text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
+                console.log('@@ Image body content', content)
+                console.log('@@ Image  url', text)
+            } else if (content.msgtype === 'm.text' || content.msgtype === 'm.notice') {
                 text = content.body
                 richText = getRichText(content)
             } else {
                 console.log(` @@ checkout this ${content.msgtype} content`, content)
                 console.log(` @@ checkout this ${content.msgtype} event`, event)
-                // throw new Error(`Event m.message has message type "${content.msgtype}" expected "m.text"`)
+                throw new Error(`Event m.message has message type "${content.msgtype}" expected "m.text"`)
             }
         }
 
-        body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(content) + "]";
+        // body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(content) + "]";
 
-        const messageData = { time, sender, body }
         const chatChannel = chatChannelFromMatrixRoom(room, config)
 
-        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replaces, replyTo, threadRoot, isEmotion  }
+        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replaces, replyTo, threadRoot, isEmotion, metadata  }
 
         // console.log('  Equivalent gitter message ', gitterMessage)
         const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
         const author = await authorFromMatrix(userData, config)
         if (!gitterMessage.text) {
-           throw new Error(`Matrix message: No main text in message ${id}`)
+            console.log('No text on event: ', event)
+           throw new Error(`Matrix message: No main text in message ${eventId}`)
        }
         await storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     }
     console.log(`${flag} >>>> [${time}] ${eventType} <${userData.id}> "${name}": ${body.slice(0,80)}`)
+    return time
 }
 
 async function loadRoomMessages (room, config) {
@@ -565,7 +581,7 @@ async function loadRoomMessages (room, config) {
         const item = timeline[i]
         const event = item.event
         events += 1
-        await handleMatrixMessage(item, room, config);
+        const time = await handleMatrixMessage(item, room, config);
         console.log(' toBePut length ' + Object.keys(toBePut).length)
     }
     console.log()

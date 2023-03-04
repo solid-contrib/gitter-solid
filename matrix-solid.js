@@ -477,6 +477,10 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
                 const repoURI = `https://${content.platform}/${content.linkPath}/`
                 console.log(`  Got related Githb repo ${repoURI} 👍`)
                 await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym(repoURI), config)
+            } else if (content.type === 'GL_PROJECT') {
+                const repoURI = `https://${content.platform}/${content.linkPath}/`
+                await saveUniqueValueToRoom(room, ns.foaf('homepage'), $rdf.sym(repoURI), config)
+                // externalId: '7527683', linkPath: 'gitlab-org/gitter/node-gitter', platform: 'gitlab.com', type: 'GL_PROJECT'
             } else {
                 console.log('@@ Dont understand project_association content', content)
                 throw new Error('Gitter project_association has unnown type: ' + content.type)
@@ -494,9 +498,11 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             if (content.github && content.github.default_repo) {
                 await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym('https://github.com/' + content.github.default_repo + '/'), config)
             }
+        } else if (eventType === 'm.space.child') {
+            // like suggested: false, via: [ 'gitter.im', 'matrix.org', 'chat.semantic.works' ]
+            console.log('Ignoring event type ' + eventType)
         } else if (eventType === 'uk.half-shot.bridge') {
             console.log('Ignoring event type ' + eventType)
-
         } else {
             console.log('State type ' + eventType + ' unknown: content: ', content)
             console.log('State type ' + eventType + ' unknown: event: ', event)
@@ -539,9 +545,16 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
                 messageData.text = content.body
                 messageData.richText = getRichText(content)
             } else {
-                console.log(` @@ checkout this ${content.msgtype} content`, content)
-                console.log(` @@ checkout this ${content.msgtype} event`, event)
-                throw new Error(`Event m.message has unexpected message type "${content.msgtype}"`)
+                if (!content.msgtype) { // no mssage type given at all?
+                    messageData.text = '<untyped>'
+                    if (event.unsigned && event.unsigned.redacted_because) {
+                        messageData.text = '<redacted>'
+                    }
+                } else {
+                    console.log(` @@ checkout this ${content.msgtype} content`, content)
+                    console.log(` @@ checkout this ${content.msgtype} event`, event)
+                    // throw new Error(`Event m.message has unexpected message type "${content.msgtype}"`)
+                }
             }
         }
 
@@ -1132,10 +1145,13 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
         console.log(` Storing memberhip by ${gitterMessage.id.slice(-10)} of thread based on ${gitterMessage.threadRoot.slice(-10)} `)
 
         toBeExecuted.push( function() {
-            console.log('Delayed function:')
-            const threadRootMessageURI = eventMap[gitterMessage.threadRoot]
+            // console.log('Delayed function:')
+            let threadRootMessageURI = eventMap[gitterMessage.threadRoot]
             if (!threadRootMessageURI) {
-                console.log('   ## Could not find ' + gitterMessage.threadRoot)
+                console.warn(' Linking to message: Could not find ' + gitterMessage.threadRoot)
+                let threadRootMessageURI = matrixThingFromEventId(gitterMessage.threadRoot)
+                console.warn('    Linking to message: so using ' + threadRootMessageURI)
+
             } else {
                 const threadRootMessage = $rdf.sym(threadRootMessageURI)
                 const thread = $rdf.sym(threadRootMessage.uri + '-thread')

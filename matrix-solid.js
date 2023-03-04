@@ -358,10 +358,10 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
-    console.log(`\n<<<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ...${eventId.slice(-6)}:-`)
+    console.log(`\n<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ...${eventId.slice(-6)}:-`)
 
     if (event.event && event.event.redacted_because) {
-        console.log('>>>> Note REDACTED event because:', event.event.redacted_because)
+        console.log('> Note REDACTED event because:', event.event.redacted_because)
         console.log(`   Redacted event isState: ${isState}`)
         messageData.text = '<redacted>' // fill
         // Redacted events don'y have msgType
@@ -491,6 +491,10 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
             console.warn('Inoring state power levels', content) // useful to store in the room
 
+        } else if (eventType === 'm.room.bot.options') { // { github: { default_repo: 'linkeddata/dokieli' } }
+            if (content.github && content.github.default_repo) {
+                await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym('https://github.com/' + content.github.default_repo + '/'), config)
+            }
         } else if (eventType === 'uk.half-shot.bridge') {
             console.log('Ignoring event type ' + eventType)
 
@@ -554,7 +558,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
        }
         await storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     }
-    console.log(`${flag} >>>> [${time}] ${eventType} <${userData.id}> "${name}": ${body.slice(0,80)}`)
+    console.log(`${flag} > [${time}] ${eventType} <${userData.id}> "${name}": ${body.slice(0,80)}`)
     return time
 }
 
@@ -890,7 +894,7 @@ async function firstMessage (chatChannel, backwards) { // backwards -> last mess
       console.log('resp.status ' + resp.status)
       console.log('resp.statusText ' + resp.statusText)
 
-      console.log('folderStore: <<<<<\n' + folderStore + '\n >>>>>>>> ')
+      console.log('folderStore: <\n' + folderStore + '\n > ')
       console.trace('ooops no suitable kids - full list:' + folderStore.each(parent, ns.ldp('contains')))
       console.log(' parent: ' + parent)
       console.log(' \ndoc contents: ' + folderStore.statementsMatching(null, null, null, parent))

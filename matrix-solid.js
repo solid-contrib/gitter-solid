@@ -23,13 +23,13 @@ const matrixUserId = "@timblbot:matrix.org";
 const baseUrl = "http://matrix.org"
 
 const MATRIX_TO_GITTER_MAP = { '!AdIacJniSdsOmHkZjQ:snopyta.org': 'solid/chat' } // https://matrix.to/#/#solid_chat:gitter.im?utm_source=gitter
-const MESSAGES_AT_A_TIME = 100 // 3000?
+const MESSAGES_AT_A_TIME = 1000
 const THREAD_SEARCH_RANGE = 90
 const THREAD_LOAD_RANGE= 90
 const THREAD_SCAN_RANGE = 365
 
 const THREAD_SEARCH_CLIP_DATE = '2022-12-01' // Don't bother trying to hook up threads past that
-const MESSAGE_LOAD_CLIP = '2023-02-14' // Don't load anything  before this
+const MESSAGE_LOAD_CLIP = '2025-02-14' // Don't load anything  before this
 const MAX_SCROLLS = 100
 dotenv.config()
 
@@ -121,7 +121,7 @@ function showRoom (room) {
 function printRoomList() {
     // console.log(CLEAR_CONSOLE);
     console.log("Room List:");
-    for (const room of roomList) {
+    for (let i = 0; i < roomList.length; i++) {
         console.log(showRoom(room))
     }
 }
@@ -177,7 +177,8 @@ function chatChannelFromMatrixRoom (room, config) {
        }
     } else if (room.name.match(/[a-zA-Z0-9]*\/[a-zA-Z0-9]*/)) {
     } else {
-        const [ name, host ] = room.roomId.split(':')
+        const [ sigilled, host ] = room.roomId.split(':')
+        const name = sigilled.slice(1) // remove the '!' for the room
         segment = host + '/' + encodeURIComponent(name)
     }
     const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
@@ -188,7 +189,9 @@ function chatChannelFromMatrixRoom (room, config) {
     return solidChannel
 }
 
+
 async function authorFromMatrix (userData, config) {
+    // console.log('   @@@ authorFromMatrix in handleMatrixMessage' , config)
   /* user state looks like
     "avatar_url":"mxc://matrix.org/QGLfsOamRItelTTqJypDlicO",
     "displayname":"Mal Burns",
@@ -311,14 +314,14 @@ function getRichText (content) {
         if (content.format !== 'org.matrix.custom.html') {
             throw new Error(`Event rich message has format "${content.format}" expected "org.matrix.custom.html"`)
         }
-        // console.log(' m.room.message contents: ', content)
+        console.log(' m.room.message contents: ', content)
         return content.formatted_body
     }
     return undefined
 }
 /*              Handle one Matrix Message
 */
-async function handleMatrixMessage (event, room, chatChannel, config) {
+async function handleMatrixMessage (event, room, config) {
     const userData = {}
     let sender = event.getSender() // like   @timbl:matrix.org
     if (sender.startsWith('@')) sender = sender.slice(1) // strip Sigil [sic]
@@ -340,6 +343,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
     const eventType = event.getType()
     const eventId = event.event.event_id
     console.log('   Event id ', eventId)
+
     if (false && eventId.endsWith('G-F3w')) {
         console.log('\n@@@@ G-F3w ###', event)
         console.log("event.event.content:", event.event.content)
@@ -350,8 +354,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
         console.log('\n\n')
     }
 
-    // var text, richText, replyTo, threadRoot, target, isEmotion, replaces, metadata
-    const messageData = { sender, time, id: eventId }
+    var text, richText, replyTo, threadRoot, target, isEmotion, replaces, metadata
 
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
@@ -359,17 +362,14 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
     console.log(`\n<<<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ...${eventId.slice(-6)}:-`)
 
     if (event.event && event.event.redacted_because) {
-        console.log('>>>> Note REDACTED event because:', event.event.redacted_because)
-        console.log(`   Redacted event isState: ${isState}`)
-        messageData.text = '<redacted>' // fill
-        // Redacted events don'y have msgType
-        // return time
+        console.warn('>>>> Ignoring redacted event because:', event.event.redacted_because)
+        return time
     }
 
     // Found a case where a thread rel was just misssung fomr the getContrnt() version
     const relatesTo = content['m.relates_to'] || event.event.content['m.relates_to']
     if (relatesTo) {
-        messageData.target = deSigil(relatesTo.event_id)
+        target = deSigil(relatesTo.event_id)
         const relType = relatesTo.rel_type // m.annotation
         if (relType === 'm.annotation') {
             if (eventType !== 'm.reaction') {
@@ -378,16 +378,16 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
 
             }
         } else if (relType === 'm.replace') {
-            console.log('   This REPLACES ' + messageData.target)
-            messageData.replaces = messageData.target
+            console.log('   This REPLACES ' + target)
+            replaces = target
             // @@@ code me  .. replaces target -> dct:isReplacedBy
         } else if (relType === 'm.thread') {
-            console.log('   This has thread ' + messageData.target)
-            messageData.threadRoot = messageData.target
+            console.log('   This has thread ' + target)
+            threadRoot = target
         } else {
             if (relatesTo['m.in_reply_to']) {
-                messageData.replyTo = deSigil(relatesTo['m.in_reply_to'].event_id)
-                console.log(' Straight reply (no thread)' + messageData.replyTo)
+                replyTo = deSigil(relatesTo['m.in_reply_to'].event_id)
+                console.log(' Straight reply (no thread)' + replyTo)
             } else {
                 console.log('Relationship with no rel_type or m.in_reply_to', relatesTo)
                 throw new Error ('Relationship with no rel_type or m.in_reply_to')
@@ -399,10 +399,9 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
         if (relatesTo) {
             const emotion = relatesTo.key // Emoji
             // @@ Add code to put the solid reaction in the chat file  ... see the toolbar in solid chat
-            console.log(`Ignoring for now reaction ${emotion} to ${messageData.target} by ${sender}`)
-          } else if (event.event && event.event.redacted_because){
-            console.log('  Redacted m.reaction ' + eventId)
-          } else {
+            console.log(`Ignoring for now reaction ${emotion} to ${target} by ${sender}`)
+
+        } else {
             console.log('  @reaction event we dont understand:, ', event)
             throw new Error('@@ m.reaction content we dont understand - no relatdeTo')
         }
@@ -421,20 +420,25 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             userData.avatar_url = avatarHTTPUrl
         }
 
-        if (eventType === 'm.room.canonical_alias') {
+        if (event.getType() === 'm.room.canonical_alias') {
+
             const alias = toMatrixThing(content.alias)
-            await saveUniqueValueToRoom(room, ns.rdfs('comment'), `canonical alias: ${alias}.`, config) // Eg public
-        } else if (eventType === 'm.room.topic') {
+            // @@
+
+        } else if (event.getType() === 'm.room.topic') {
+
             await saveUniqueValueToRoom(room, ns.dct('title'), content.topic, config) // Eg public
-        } else if (eventType === 'm.room.history_visibility') {
+
+        } else if (event.getType() === 'm.room.history_visibility') {
+
             await saveUniqueValueToRoom(room, ns.rdfs('comment'), `history_visibility: ${content.history_visibility}.`, config) // Eg public
-        } else if (eventType === 'm.room.encryption') {
-            await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Encryption: algorithm: ${content.algorithm}.`, config) // eg 'm.megolm.v1.aes-sha2'
-        } else if (eventType === 'm.room.guest_access') {
-              await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Guest_access: ${content.guest_access}.`, config) // Eg can_join
-        } else if (eventType === 'm.room.join_rules') {
-              await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Join rules: ${content.join_rules}.`, config) // Eg public
-        } else if (eventType === 'm.room.create') {
+
+        } else if (event.getType() === 'm.room.join_rules') {
+
+            await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Join rules: ${content.join_rules}.`, config) // Eg public
+
+        } else if (event.getType() === 'm.room.create') {
+
             const created = new Date(content.origin_server_ts)
             await saveUniqueValueToRoom(room, ns.dct('created'), created, config)
 
@@ -444,17 +448,17 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             if (content.room_version) {
                 await saveUniqueValueToRoom(room, ns.rdfs('comment'), `Room version: ${content.room_version}`, config)
             }
-        } else if (eventType === 'm.room.member') {
+        } else if (event.getType() === 'm.room.member') {
 
             const solidPerson = await authorFromMatrix(userData, config)
             console.log('State: updated ' + solidPerson + ': ', userData)
             console.log('State m.room.member all actions should be done.')
 
-        } else if (eventType == 'm.room.name') {
+        } else if (event.getType() == 'm.room.name') {
             if (!content.name) throw new Error(' Missing room name:', event)
             await saveUniqueValueToRoom(room, ns.vcard('fn'), content.name, config)
 
-        } else if (eventType === 'm.room.avatar') {
+        } else if (event.getType() === 'm.room.avatar') {
 
             console.log('@@ State m.room.avatar: ' , event)
             if (!content.url) throw new Error(' Missing room avatar:', event)
@@ -464,7 +468,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             const roomId = event.event.room_id
             await saveUniqueValueToRoom(room, ns.vcard('photo'), avatar, config)
 
-        } else if (eventType === 'im.gitter.project_association') {
+        } else if (event.getType() === 'im.gitter.project_association') {
             // A gitter extension to link to github
             //   like: { externalId: '58017436', linkPath: 'solid/mashlib', platform: 'github.com',type: 'GH_REPO'},
             if (content.type === 'GH_REPO') {
@@ -475,69 +479,65 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
                 throw new Error('Gitter project_association has unnown type: ' + project_association)
             }
 
-        } else if (eventType === 'org.matrix.msc3946.room_predecessor' || eventType === 'org.matrix.room_predecessor') {
+        } else if (event.getType() === 'org.matrix.msc3946.room_predecessor' || event.getType() === 'org.matrix.room_predecessor') {
             if (!content.predecessor_room_id) throw new Error('predecessor_room_id with no predecessor_room_id')
             await saveUniqueValueToRoom(room, ns.schema('successorOf'), toMatrixThing(content.predecessor_room_id), config) // @@ better pred?
-        } else if (eventType === 'm.room.power_levels') {
+        } else if (event.getType() === 'm.room.power_levels') {
             // For this room, what user power level is needed for actions and event types?
             // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
             console.warn('Inoring state power levels', content)
 
         } else {
-            console.log('State type unknown: ' + eventType, event)
-            throw new Error('State type unknown: ' + eventType)
+            console.log('State type unknown: ' + event.getType(), event)
+            throw new Error('State type unknown: ' + event.getType())
         }
 
-    } else { // NOT STATE
-
-        if (eventType === 'm.room.encrypted') {
-            console.log('Warning: encrypted messages are not supported.')
-            messageData.text = content.ciphertext.slice(0,60) + '...'
-        } else if (eventType === "m.room.redaction") {
+    } else {
+        if (eventType === "m.room.redaction") {
             console.log(' Ignoring  REDACTED: ' + event.event.redacts)
-            messageData.text = '<redaction>'
+            return time
         } else if (eventType === "m.room.message") {
-            if (event.event && event.event.redacted_because) {
-              messageData.text = '' // Redacted message and redacting message are both hidden
-              messageData.deleted = true
             // https://spec.matrix.org/v1.2/client-server-api/#mroommessage-msgtypes
-            } else if (content.msgtype === 'm.emote') {
+            if (content.msgtype === 'm.emote') {
                 console.log(' Hey -- emote', content)
-                messageData.text = content.body
-                messageData.richText = getRichText(content)
-                messageData.isEmotion = true
+                text = content.body
+                richText = getRichText(content)
+                isEmotion = true
             } else if (content.msgtype === 'm.audio' || content.msgtype === 'm.file' || content.msgtype === 'm.video') {
                 //   body: 'foo.ttl',
                 //    info: { mimetype: 'text/turtle', size: 10 }
-                messageData.metadata = content.info // mimetype etc
-                messageData.text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
-                console.log('     File url', messageData.text)
+                metadata = content.info // mimetype etc
+                text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
+                console.log('     File url', text)
             } else if (content.msgtype === 'm.image') {
                 //   body: 'image.png',
                 //   info: { h: 256, mimetype: 'image/png', size: 15119, w: 256,
                 //   'xyz.amorgan.blurhash': 'UBHxOUxt00Icxea#j;j@00Rl_5xns=j@R#j?'},
-                messageData.metadata = content.info // mimetype etc
-                messageData.text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
+                metadata = content.info // mimetype etc
+                text = matrixClient.mxcUrlToHttp(content.url, null, null, null, true)
                 console.log('@@ Image body content', content)
-                console.log('@@ Image  url', messageData.text)
+                console.log('@@ Image  url', text)
             } else if (content.msgtype === 'm.text' || content.msgtype === 'm.notice') {
-                messageData.text = content.body
-                messageData.richText = getRichText(content)
+                text = content.body
+                richText = getRichText(content)
             } else {
                 console.log(` @@ checkout this ${content.msgtype} content`, content)
                 console.log(` @@ checkout this ${content.msgtype} event`, event)
-                throw new Error(`Event m.message has unexpected message type "${content.msgtype}"`)
+                throw new Error(`Event m.message has message type "${content.msgtype}" expected "m.text"`)
             }
         }
 
-        const gitterMessage = { id: eventId.slice(1), sent: messageData.time, fromUser: messageData.sender, text: messageData.text,
-          replaces: messageData.replaces, replyTo: messageData.replyTo, threadRoot: messageData.threadRoot, isEmotion: messageData.isEmotion, metadata: messageData.metadata  }
+        // body = "[Message  type:" + event.getType() + " content: " + JSON.stringify(content) + "]";
+
+        const chatChannel = chatChannelFromMatrixRoom(room, config)
+
+        const gitterMessage = { id: eventId.slice(1), sent: time, fromUser: sender, text, replaces, replyTo, threadRoot, isEmotion, metadata  }
 
         // console.log('  Equivalent gitter message ', gitterMessage)
         const archiveBaseURI = archiveBaseURIFromMatrixRoom(room, config)
         const author = await authorFromMatrix(userData, config)
-        if (typeof messageData.text !== 'string') {
-            console.log('No text ' + messageData.text + ' on event: ', event)
+        if (!gitterMessage.text) {
+            console.log('No text on event: ', event)
            throw new Error(`Matrix message: No main text in message ${eventId}`)
        }
         await storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
@@ -547,6 +547,8 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
 }
 
 async function loadRoomMessages (room, config) {
+    console.log(`loadRoomMessages: room name ${room.name}`)
+    // console.log(show(room))
 
     async function getSome () {
         var result
@@ -567,8 +569,7 @@ async function loadRoomMessages (room, config) {
         }
         return result
     }
-    console.log(`loadRoomMessages: room name ${room.name}`)
-    const chatChannel = chatChannelFromMatrixRoom(room, config)    // console.log(show(room))
+
     const result =  await getSome()
 
     var earliestMessage = null
@@ -581,7 +582,7 @@ async function loadRoomMessages (room, config) {
         const item = timeline[i]
         const event = item.event
         events += 1
-        const time = await handleMatrixMessage(item, room, chatChannel, config);
+        const time = await handleMatrixMessage(item, room, config);
         console.log(' toBePut length ' + Object.keys(toBePut).length)
     }
     console.log()
@@ -600,26 +601,22 @@ async function loadRoomMessages (room, config) {
 
     console.log(' toBePut length ' + Object.keys(toBePut).length)
     saveEverythingBack()
-    // console.log(' toBePut length ' + Object.keys(toBePut).length)
+    console.log(' toBePut length ' + Object.keys(toBePut).length)
 }
 
 async function linkEverything () {
     console.log('linkEverything:  toBeLinked length ' + toBeLinked.length)
-    let successes = 0, failures = 0;
-
     while(toBeLinked.length > 0) {
         const { message, predicate, target, reverse } = toBeLinked.pop()
         const targetMessageURI = eventMap[target]
 
         // const targetMessage = await findEventById(message, target)
         if (!targetMessageURI) {
-            console.warn(`  linkEverything: Failed to find ${target} around ${message} ❌`)
-            // throw new Error (`linkEverything: Failed to find ${target} near ${message}`)
-            failures += 1
+            // console.log(`  linkEverything: Failed to find ${target} around ${message}`)
+            throw new Error (`linkEverything: Failed to find ${target} near ${message}`)
         } else {
-            successes += 1
             const targetMessage = $rdf.sym(targetMessageURI)
-            // console.log(`   Found  ${target} at ${targetMessage} ✅`)
+            console.log(`   Found  ${target} at ${targetMessage} ✅`)
             if (message.doc().sameTerm(targetMessage.doc())) {
                 console.log(`(Found ${targetMessage} in same doc as ${message}) `)
             }
@@ -634,25 +631,38 @@ async function linkEverything () {
             toBePut[targetMessage.doc().uri] = true
         }
     }
-    console.log(` linkEverything: ${successes} successes, ${failures} failures.`)
 }
 
 async function executeEverything () {
-    console.log('execureEverything:  number toBeExecuted: ' + toBeExecuted.length)
+    console.log('execureEverything:  toBeExecuted length ' + toBeExecuted.length)
     while(toBeExecuted.length > 0) {
-        // console.log('Executing one:')
+        console.log('Executing one:')
         toBeExecuted.pop()()
+    }
+}
+
+function matrixRoomDebug (room) {
+    for (let i = 0; i < room.timeline.length; i++) {
+        const timeline = room.timeline[i]
+        console.log(`  timeline status ${timeline.status}`)
+        if (room.timeline[i].status == sdk.EventStatus.NOT_SENT) {
+            notSentEvent = room.timeline[i];
+            break;
+        }
+    }
+    for (let prop in room) {
+        const typ = typeof room[prop]
+        console.log(`   ${prop}: ${show(room[prop])}`) // ${room[prop]}
     }
 }
 
 async function processMatrixRoom (room, config) {
     console.log(`\n Room ${showRoom(room)}`)
-    newMessages = 0
-    oldMessages = 0
     const already = await initialize(room, config)
     var myMembership = room.getMyMembership();
     await loadRoomMessages(room, config)
-    console.log(`Totals for room ${room.roomId} old messages: ${oldMessages}, new: ${newMessages}`)
+    // await loadRoomMessages(room, config) // what happens if we do it twice?
+
 }
 
 async function processMatrixRooms (config) {
@@ -675,11 +685,8 @@ async function processMatrixRooms (config) {
                 return;
             }
         }
-        console.error(`Error: Target rooom name ${targetRoomName} not found.\nRooms:`)
-        printRoomList()
+        console.error(`Error: Target rooom name ${targetRoomName} not found`)
     }
-    console.log('All done, exiting.')
-    process.exit(0)
 }
 
 
@@ -705,9 +712,7 @@ async function initialiseMatrix(config) {
           await processMatrixRooms(config)
           console.log(` to be put back: ${Object.keys(toBePut).length}`)
           await saveEverythingBack()
-          // console.log(` should be all put back: ${Object.keys(toBePut).length}`)
-          console.log('Exit.')
-          process.exit(0)
+          console.log(` should be all put back: ${Object.keys(toBePut).length}`)
       } else {
           console.log('Fatal Error:  state not prepared: ' + state);
           // console.log(state);
@@ -833,7 +838,13 @@ function chatChannelFromGitterRoom (room, config) {
 
 async function putResource (doc) {
   delete fetcher.requested[doc.uri] // invalidate read cache @@ should be done by fetcher in future
-  return fetcher.putBack(doc, clone(normalOptions))
+  console.log('   @@@ putBack ' + doc.uri)
+  const options = clone(normalOptions)
+  // const response = await fetcher.putBack(doc, clone(normalOptions))
+  options.data = $rdf.serialize(doc, store, doc.uri, options.contentType) // as string
+  const response = await store.fetcher.webOperation('PUT', doc.uri, clone(normalOptions))
+  console.log(`     @@@ putBack ${doc.uri}  status ' ${response.status} `)
+  return
 }
 
 async function loadIfExists (doc) {
@@ -1073,14 +1084,28 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
     async function storeRelatedEvent (message, target, predicate, reverse) {
         console.log(`storeRelatedEvent: ${target}, ${predicate} `)
         toBeLinked.push({ message, predicate, target, reverse} )
+
+        // Link it in the web if we can find it
+        /*
+        const threadRootMessage = await findEventById(message, target)
+        console.log('  storeRelatedEvent: threadRootMessage: ' +  threadRootMessage)
+        if (threadRootMessage) {
+            store.add(threadRootMessage, predicate, message, chatDocument) // @@ predicate??
+            if (!message.doc().sameTerm(threadRootMessage.doc())) { // double link
+                await store.fetcher.load(threadRootMessage.doc())
+                store.add(threadRootMessage, predicate, message, threadRootMessage.doc())
+                toBePut[threadRootMessage.doc().uri]
+                console.log(`   storeRelatedEvent: Double linking  ${message} and ${threadRootMessage} ✅`)
+            }
+        } else {
+            console.warn('Could not find Solid message thread correponding to ⚠️' + target)
+            // store.add(message, predicate, urn, chatDocument) // @@ predicate??
+        }
+        */
     }
 
-    // console.log(`  storeMessage gitterMessage `, gitterMessage)
+    console.log(`  storeMessage gitterMessage `, gitterMessage)
     var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
-    if (gitterMessage.sent < MESSAGE_LOAD_CLIP) {
-        console.log(`storeMessage: Skip ${gitterMessage.sent} is too early, before ${MESSAGE_LOAD_CLIP}`)
-        return
-    }
     var chatDocument = chatDocumentFromDate(chatChannel, sent)
     var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
     // console.log('          Solid Message  ' + message)
@@ -1100,7 +1125,7 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
 
     store.add(message, ns.sioc('id'), id, chatDocument)
 
-    if (typeof gitterMessage.text == 'string') { // 0 length is OK
+    if (gitterMessage.text) {
         store.add(message, ns.sioc('content'), gitterMessage.text, chatDocument)
     } else {
         throw new Error(`storeMessage: No main text in message.`)
@@ -1439,12 +1464,7 @@ async function doRoom (room, config) {
 
 async function loadConfig () {
   let webId;
-  const localPod = process.env.LOCAL_POD
-  if (!localPod) {
-      console.error('Specificy LOCAL_POD in environment for your config.')
-      process.exit(-2)
-  }
-  // let localPod = process.argv[4];
+  let localPod = process.argv[4];
   let remotePod = false;
   if(!localPod){
     remotePod = await confirm('Store on remote pod');
@@ -1642,7 +1662,7 @@ async function go () {
     }
     process.exit(0) // No more processing for list
   }
-/*
+
   var targetRoom
   var roomsToDo = []
   console.log('targetRoomName 1 ' + targetRoomName)
@@ -1693,7 +1713,6 @@ async function go () {
 
   // await saveEverythingBack()
   console.log('ENDS')
-  */
 } // go
 
 var toBePut = []

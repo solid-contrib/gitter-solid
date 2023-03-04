@@ -490,6 +490,10 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
             console.warn('Inoring state power levels', content) // useful to store in the room
 
+        } else if (eventType === 'm.room.bot.options') { // { github: { default_repo: 'linkeddata/dokieli' } }
+            if (content.github && content.github.default_repo) {
+                await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym('https://github.com/' + content.github.default_repo + '/'), config)
+            }
         } else if (eventType === 'uk.half-shot.bridge') {
             console.log('Ignoring event type ' + eventType)
 

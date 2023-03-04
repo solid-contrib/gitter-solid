@@ -470,13 +470,19 @@ async function handleMatrixMessage (event, room, config) {
 
         } else if (event.getType() === 'im.gitter.project_association') {
             // A gitter extension to link to github
-            //   like: { externalId: '58017436', linkPath: 'solid/mashlib', platform: 'github.com',type: 'GH_REPO'},
-            if (content.type === 'GH_REPO') {
+            if (content.type === 'GH_ORG') {
+                // like   externalId: null, linkPath: 'rdfjs', platform: 'github.com', type: 'GH_ORG'
+                const repoURI = `https://${content.platform}/${content.linkPath}/`
+                console.log(`  Got related Githb Organization ${repoURI} 👍`)
+                await saveUniqueValueToRoom(room, ns.foaf('homepage'), $rdf.sym(repoURI), config)
+            } else if (content.type === 'GH_REPO') {
+                //   like: { externalId: '58017436', linkPath: 'solid/mashlib', platform: 'github.com',type: 'GH_REPO'},
                 const repoURI = `https://${content.platform}/${content.linkPath}/`
                 console.log(`  Got related Githb repo ${repoURI} 👍`)
                 await saveUniqueValueToRoom(room, ns.doap('repository'), $rdf.sym(repoURI), config)
             } else {
-                throw new Error('Gitter project_association has unnown type: ' + project_association)
+                console.log('@@ Dont understand project_association content', content)
+                throw new Error('Gitter project_association has unnown type: ' + content.type)
             }
 
         } else if (event.getType() === 'org.matrix.msc3946.room_predecessor' || event.getType() === 'org.matrix.room_predecessor') {
@@ -485,11 +491,20 @@ async function handleMatrixMessage (event, room, config) {
         } else if (event.getType() === 'm.room.power_levels') {
             // For this room, what user power level is needed for actions and event types?
             // https://spec.matrix.org/v1.6/client-server-api/#mroompower_levels
-            console.warn('Inoring state power levels', content)
+            console.warn('Inoring state power levels', content) // useful to store in the room
+
+        } else if (eventType === 'uk.half-shot.bridge') {
+            console.log('Ignoring event type ' + eventType)
 
         } else {
+<<<<<<< HEAD
             console.log('State type unknown: ' + event.getType(), event)
             throw new Error('State type unknown: ' + event.getType())
+=======
+            console.log('State type ' + eventType + ' unknown: content: ', content)
+            console.log('State type ' + eventType + ' unknown: event: ', event)
+            throw new Error('State type unknown: ' + eventType)
+>>>>>>> 94097d3316fa57e588fbb5e6b832f873650e39ec
         }
 
     } else {

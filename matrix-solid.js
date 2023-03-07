@@ -77,6 +77,45 @@ if (!ns.wf) {
   ns.wf = new $rdf.Namespace('http://www.w3.org/2005/01/wf/flow#') //  @@ sheck why necessary
 }
 
+/// should share with this solid-ui/src/chat/messageTools.
+
+/* Emoji in Unicode
+
+See https://www.unicode.org/emoji/charts/full-emoji-modifiers.html 
+
+More specfic types -- https://schema.org/ReactAction
+        AgreeAction
+        DisagreeAction
+        DislikeAction  @@
+        EndorseAction
+        LikeAction
+        WantAction  @@
+*/
+
+const emojiMap = {}
+emojiMap[ns.schema('AgreeAction')] = '👍️' // What about skin variations ??! @@ https://www.unicode.org/emoji/charts/full-emoji-modifiers.html
+emojiMap[ns.schema('DisagreeAction')] = '👎'
+emojiMap[ns.schema('EndorseAction')] = '⭐️'
+emojiMap[ns.schema('LikeAction')] = '❤️'
+
+export function emojiFromActionClass (action) {
+  return emojiMap[action] || null
+}
+
+export function ActionClassFromEmoji (emoji) {
+  for (const a in emojiMap) {
+
+      if (emojiMap[a] === emoji) {
+          console.log(` ActionClassFromEmoji success ${emoji} -> ${a}`)
+          return $rdf.sym(a.slice(1, -1)) // remove < >
+      }
+  }
+  console.log(' ActionClassFromEmoji fail ${emoji}' )
+
+  return null
+}
+
+
 ///////////// MATRIX /////////////////
 
 
@@ -191,6 +230,11 @@ function chatChannelFromMatrixRoom (room, config) {
     return solidChannel
 }
 
+function userFromMatrixId (id, config) {
+    const peopleBaseURI = config.publicUserFolder.uri
+    return $rdf.sym(peopleBaseURI + encodeURIComponent(id) + '/index.ttl#this')
+}
+
 async function authorFromMatrix (userData, config) {
   /* user state looks like
     "avatar_url":"mxc://matrix.org/QGLfsOamRItelTTqJypDlicO",
@@ -220,7 +264,8 @@ async function authorFromMatrix (userData, config) {
   }
 
   const peopleBaseURI = config.publicUserFolder.uri
-  var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
+  //var person = $rdf.sym(peopleBaseURI + encodeURIComponent(userData.id) + '/index.ttl#this') // @@ matrix-
+  const person = userFromMatrixId(userData.id, config)
   console.log(`  person id: ${userData.id} -> solid ${person}`)
 
   if (peopleDone[person.uri]) {
@@ -392,7 +437,14 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
         if (relatesTo) {
             const emotion = relatesTo.key // Emoji
             // @@ Add code to put the solid reaction in the chat file  ... see the toolbar in solid chat
-            console.log(`Ignoring for now reaction ${emotion} to ${messageData.target} by ${sender}`)
+            console.log(`Storing m.reaction ${emotion} to ${messageData.target} by ${sender}`)
+            const action = { reactionId: eventId, sender, time, target:messageData.target, content:emotion, senderId:sender }
+            await storeAction(action, config)
+            /* Should be saved like
+                <#id1678102306625> <http://schema.org/agent> <https://timbl.inrupt.net/profile/card#me>;
+                a <http://schema.org/AgreeAction>;
+                <http://schema.org/target> <#Msg1677678647433>.
+            */
           } else if (event.event && event.event.redacted_because){
             console.log('  Redacted m.reaction ' + eventId)
           } else {
@@ -1099,6 +1151,33 @@ async function findEventById (currentMessage, thread) {
     return null
 }
 
+/** Convert Matrix reaction to Solid
+*/
+async function storeAction(action, config) {
+  const { reactionId, sender, time, target, content, senderId } = action;
+  const klass = ActionClassFromEmoji(content) || ns.schema('ReactAction') // Superclass
+  const author = userFromMatrixId(senderId, config)
+  toBeExecuted.push( function() {
+      // console.log('Delayed function:')
+      let targetURI = eventMap[target]
+
+      if (!targetURI) {
+          console.warn(' Linking action to message: ❌ Could not find ' + target)
+          return
+          // targetURI = matrixThingFromEventId(target)
+          // console.warn('    Linking to message: so using ' + targetURI)
+      } else {
+          const targetMessage = $rdf.sym(targetURI)
+          const doc = targetMessage.doc()
+          const action = $rdf.sym(doc.uri + '#' + reactionId.slice(1) + '-action')
+          store.add(action, ns.rdf('type'), klass, doc)
+          store.add(action, ns.schema('agent'), author, doc)
+          store.add(action, ns.schema('target'), targetMessage, doc)
+          toBePut[doc.uri] = true
+          console.log(`Success adding action "${content}" action ${klass} on ${targetMessage} 🎉`)
+      }
+  })
+}
 /**  Convert gitter message to Solid
  *
 */
@@ -1106,7 +1185,6 @@ async function findEventById (currentMessage, thread) {
 
 var newMessages = 0
 var oldMessages = 0
-
 
 async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author) {
 
@@ -1161,9 +1239,8 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
             let threadRootMessageURI = eventMap[gitterMessage.threadRoot]
             if (!threadRootMessageURI) {
                 console.warn(' Linking to message: Could not find ' + gitterMessage.threadRoot)
-                let threadRootMessageURI = matrixThingFromEventId(gitterMessage.threadRoot)
+                threadRootMessageURI = matrixThingFromEventId(gitterMessage.threadRoot)
                 console.warn('    Linking to message: so using ' + threadRootMessageURI)
-
             } else {
                 const threadRootMessage = $rdf.sym(threadRootMessageURI)
                 const thread = $rdf.sym(threadRootMessage.uri + '-thread')

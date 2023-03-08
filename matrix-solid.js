@@ -81,7 +81,7 @@ if (!ns.wf) {
 
 /* Emoji in Unicode
 
-See https://www.unicode.org/emoji/charts/full-emoji-modifiers.html 
+See https://www.unicode.org/emoji/charts/full-emoji-modifiers.html
 
 More specfic types -- https://schema.org/ReactAction
         AgreeAction
@@ -1173,6 +1173,9 @@ async function storeAction(action, config) {
           store.add(action, ns.rdf('type'), klass, doc)
           store.add(action, ns.schema('agent'), author, doc)
           store.add(action, ns.schema('target'), targetMessage, doc)
+          if (content) {
+              store.add(action, ns.sioc('content'), content, doc)              
+          }
           toBePut[doc.uri] = true
           console.log(`Success adding action "${content}" action ${klass} on ${targetMessage} 🎉`)
       }

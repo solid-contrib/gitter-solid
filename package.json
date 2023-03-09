@@ -29,7 +29,7 @@
     "rdflib": "^2.1.7",
     "readline-sync": "^1.4.10",
     "slack": "^11.0.2",
-    "solid-namespace": "^0.2.0",
+    "solid-namespace": "^0.5.2",
     "solid-node-client": "^2.0.2",
     "yargs": "^13.2.4"
   },

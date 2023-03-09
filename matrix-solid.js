@@ -1162,7 +1162,7 @@ async function storeAction(action, config) {
       let targetURI = eventMap[target]
 
       if (!targetURI) {
-          console.warn(' Linking action to message: ❌ Could not find ' + target)
+          console.warn('storeAction:  Linking action to message: ❌ Could not find ' + target)
           return
           // targetURI = matrixThingFromEventId(target)
           // console.warn('    Linking to message: so using ' + targetURI)
@@ -1177,7 +1177,7 @@ async function storeAction(action, config) {
               store.add(action, ns.sioc('content'), content, doc)              
           }
           toBePut[doc.uri] = true
-          console.log(`Success adding action "${content}" action ${klass} on ${targetMessage} 🎉`)
+          console.log(`storeAction: Success adding action "${content}" action ${klass} on ${targetMessage} 🎉`)
       }
   })
 }

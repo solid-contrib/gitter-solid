@@ -415,7 +415,9 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             } else {
 
             }
-        } else if (relType === 'm.replace') {
+        } else if (relType === 'm.replace') { // https://spec.matrix.org/v1.6/client-server-api/#event-replacements
+            /* The original event must not, itself, have a rel_type of m.replace
+            (i.e. you cannot edit an edit — though you can send multiple edits for a single original event). */
             console.log('   This REPLACES ' + messageData.target)
             messageData.replaces = messageData.target
             // @@@ code me  .. replaces target -> dct:isReplacedBy
@@ -1174,7 +1176,7 @@ async function storeAction(action, config) {
           store.add(action, ns.schema('agent'), author, doc)
           store.add(action, ns.schema('target'), targetMessage, doc)
           if (content) {
-              store.add(action, ns.sioc('content'), content, doc)              
+              store.add(action, ns.sioc('content'), content, doc)
           }
           toBePut[doc.uri] = true
           console.log(`storeAction: Success adding action "${content}" action ${klass} on ${targetMessage} 🎉`)

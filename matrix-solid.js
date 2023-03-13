@@ -386,7 +386,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
 
     const eventType = event.getType()
     const eventId = event.event.event_id
-    console.log('   Event id ', eventId)
+    console.log('\n   Event id ', eventId)
 
     // MessageData: { text, richText, replyTo, threadRoot, target, isEmotion, replaces, metadata }
     const messageData = { sender, time, id: eventId }
@@ -394,7 +394,7 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
     const isState = event.isState()
     const flag = event.isState() ? 'S' : 'M'
 
-    console.log(`\n<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ...${eventId.slice(-6)}:-`)
+    console.log(`<< ${flag} [${time}] ${eventType} <${userData.id}> "${name}" ... ${eventId.slice(-10)}:-`)
 
     if (event.event && event.event.redacted_because) {
         console.log('> Note REDACTED event because:', event.event.redacted_because)
@@ -669,7 +669,45 @@ async function loadRoomMessages (room, config) {
     console.log('   Latest message   ', latestMessage)
 
     console.log('  toBeLinked length   ' + toBeLinked.length)
+    console.log('  editedMessages length   ' + Object.keys(editedMessages).length)
     console.log('  toBeExecuted length ' + toBeExecuted.length)
+
+    for (let [originalId, edited] of Object.entries(editedMessages)) {
+        console.log(` editedMessages: ${originalId} -> message ${edited}`)
+        const originalURI = eventMap[originalId]
+        let original = null
+        if (!originalURI) {
+            // throw new Error(' editedMessages: Cant find original ' + originalId)
+            console.warn(' editedMessages: Cant find original ' + originalId)
+        } else {
+            original = $rdf.sym(originalURI)
+            console.log(` editedMessages: original ${original}`)
+            edited.push(original) // might as well just sort it with the others
+        }
+
+        const sortMe = edited.map(message => [store.any(message, ns.dct('created'), null, message.doc()), message])
+        sortMe.sort()
+        console.log('editedMessages : all messsages '  + sortMe.length)
+
+        if (sortMe.length > 1) {
+            console.log(`editedMessages for ${original}: ` + sortMe.map(x => `  time ${x[0]} message ${x[1].uri.slice(-10)}`).join('\n  '))
+        }
+        const timeley = sortMe.filter(x => x[0] && x[0].value > MESSAGE_LOAD_CLIP)
+
+        console.log('editedMessages : timeley messsages '  + timeley.length)
+
+        for (let i = 0; i < timeley.length - 1; i++) { // All but one
+            const earlier = timeley[i][1]
+            const later = timeley[i+1][1]
+            console.log(`  editedmessages finally ${earlier.uri.slice(-10)} replaced by ${later.uri.slice(-10)} `)
+            store.add(earlier, ns.dct('isReplacedBy'), later, earlier.doc())
+            toBePut[earlier.doc().uri] = true
+            if (!earlier.doc().sameTerm(later.doc())) {
+                store.add(earlier, ns.dct('isReplacedBy'), later, later.doc())
+                toBePut[later.doc().uri] = true
+            }
+        }
+    }
     if (toBeLinked.length > 0) {
         await linkEverything()
     }
@@ -1198,16 +1236,17 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
         toBeLinked.push({ message, predicate, target, reverse} )
     }
 
-    // console.log(`  storeMessage gitterMessage `, gitterMessage)
     var sent = new Date(gitterMessage.sent) // Like "2014-03-25T11:51:32.289Z"
-    if (gitterMessage.sent < MESSAGE_LOAD_CLIP) {
-        console.log(`storeMessage: Skip ${gitterMessage.sent} is too early, before ${MESSAGE_LOAD_CLIP}`)
-        return
-    }
     var chatDocument = chatDocumentFromDate(chatChannel, sent)
     var message = $rdf.sym(chatDocument.uri + '#' + gitterMessage.id) // like "53316dc47bfc1a000000000f"
-    // console.log('          Solid Message  ' + message)
+    console.log(' storeMessage:        Solid Message  ' + message)
     eventMap[gitterMessage.id] = message.uri // need to be able to link to it later
+
+    // console.log(`  storeMessage gitterMessage `, gitterMessage)
+    if (gitterMessage.sent < MESSAGE_LOAD_CLIP) {
+        console.log(`storeMessage: Skip: ${gitterMessage.sent} is TOO EARLY, before ${MESSAGE_LOAD_CLIP}`)
+        return
+    }
 
     await loadIfExists(chatDocument)
     if (store.holds(chatChannel, ns.wf('message'), message, chatDocument)) {
@@ -1265,7 +1304,11 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
         await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('has_reply'), false)
     }
     if (gitterMessage.replaces) {
-        await storeRelatedEvent(message, gitterMessage.replaces, ns.dct('isReplacedBy'), true) // reverse
+        const target = gitterMessage.replaces
+        editedMessages[target] = editedMessages[target] || []
+        editedMessages[target].push(message)
+        // await storeRelatedEvent(message, gitterMessage.replaces, ns.dct('isReplacedBy'), true) // reverse
+
     }
 
 
@@ -1836,6 +1879,7 @@ async function go () {
 
 var toBePut = []
 var toBeLinked = [] // List messages to be linked to thngs we only have matrix ID for
+var editedMessages = {} // edited messages need to vbe converted from hub to chain
 var toBeExecuted = [] //functions to be run  when we know eventMap
 var eventMap = {} // Map eventid to solid URI
 var peopleDone = {}

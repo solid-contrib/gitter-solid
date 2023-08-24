@@ -1232,7 +1232,7 @@ var oldMessages = 0
 async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author) {
 
     async function storeRelatedEvent (message, target, predicate, reverse) {
-        console.log(`storeRelatedEvent: ${target}, ${predicate} `)
+        console.log(`storeRelatedEvent: ${target}, ${predicate} ${reverse?"REVERSE":"Forward"}`)
         toBeLinked.push({ message, predicate, target, reverse} )
     }
 
@@ -1301,7 +1301,7 @@ async function storeMessage (chatChannel, gitterMessage, archiveBaseURI, author)
         // await storeRelatedEvent(message, gitterMessage.threadRoot, ns.sioc('has_member'))
     }
     if (gitterMessage.replyTo) {
-        await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('has_reply'), false)
+        await storeRelatedEvent(message, gitterMessage.replyTo, ns.sioc('has_reply'), true) // Reverse
     }
     if (gitterMessage.replaces) {
         const target = gitterMessage.replaces

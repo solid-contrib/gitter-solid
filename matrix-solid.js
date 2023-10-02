@@ -552,10 +552,10 @@ async function handleMatrixMessage (event, room, chatChannel, config) {
             console.log('Ignoring event type ' + eventType)
         } else if (eventType === 'uk.half-shot.bridge') {
             console.log('Ignoring event type ' + eventType)
-        } else {
+        } else { // eg also im.vector.modular.widgets
             console.log('State type ' + eventType + ' unknown: content: ', content)
-            console.log('State type ' + eventType + ' unknown: event: ', event)
-            throw new Error('State type unknown: ' + eventType)
+            console.warn('State type ' + eventType + ' unknown: event: ', event)
+            // throw new Error('State type unknown: ' + eventType)
         }
 
     } else { // NOT STATE

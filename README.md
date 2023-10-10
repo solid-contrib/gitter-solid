@@ -17,6 +17,8 @@ If you will be storing your chats on the local filesystem, you don't need Solid 
 
 If you will be storing your chats on a Solid Pod (either local or remote), you will need to provide login credentials to give your script write access.   You can export enviornoment variables (SOLID_IDP, SOLID_USERNAME, SOLID_PASSWORD) or let the script prompt you for the values if the environment variables are not found.
 
+**Note:** the [password flow](https://github.com/solid-contrib/solid-node-client#authentication-using-usernamepassword) used in this repository is only compatible with NSS (Node Solid Server).
+
 ### Gitter access
 
 You will need to give the script access to the gitter world, which means to get a gitter token. See https://developer.gitter.im/docs/welcome   .

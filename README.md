@@ -1,5 +1,7 @@
 # gitter-solid
 
+## Note --adding matrix compatibility too
+
 A command line or batch processing tool to move data from [gitter](https://gitter.im)
 chat into a [solid](https://solid.inrupt.net/) pod.
 
@@ -54,8 +56,8 @@ In gitter, the concept of a room includes public rooms, private rooms, and priva
   ## Places to store the chat
 
   You will be asked if you want to store the chat remotely. If you answer
-  no, you will be prompted for a local file location (see below). 
-  In either case,  you will then be prompted to give the locations of the 
+  no, you will be prompted for a local file location (see below).
+  In either case,  you will then be prompted to give the locations of the
   folder for different kinds of chats.
 
   The separate folders are necessary when using a server-based pod, because it is important to make sure that creating a copy of
@@ -129,7 +131,7 @@ to bring it all over into solid.
  ## Storing chats locally
 
  If you wish to store your chats locally without installing a Solid server,
- you can supply a file: URL pointing to the local place you'd like the 
+ you can supply a file: URL pointing to the local place you'd like the
  archive to be stored. Supply this either on the command-line as the third argument, or let the script prompt you for it.
 
  The first time you specify this location you will be prompted to
@@ -138,7 +140,7 @@ to bring it all over into solid.
 
  Once you have created a local pod, the process is the same as for
  storing the archive on a server - gitter-solid follows its nose
- from your webId, to your profile, to your preferences file, and 
+ from your webId, to your profile, to your preferences file, and
  then prompts you to add a gitterConfiguration file to your preferences.
 
   You can edit your profile and other pod documents as needed and also
